@@ -638,7 +638,7 @@ int main(int argc, char** argv) {
         else if (strcmp(argv[i], "--augment") == 0) useAugment = true;
     }
 
-    if (argc < 3) {
+    if (argc < 2) {
         cerr << "Usage:\n"
             "  vsenv create <instance> [--lang cn]\n"
             "  vsenv start  <instance> [--lang cn] [--host] [--mac] [--proxy <url>] [--sandbox|--appcontainer|--wsb] [--augment]\n"
