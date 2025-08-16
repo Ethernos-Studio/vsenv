@@ -1,4 +1,4 @@
-#define _WIN32_WINNT 0x0A00  // Windows 10
+ï»¿#define _WIN32_WINNT 0x0A00  // Windows 10
 #include <sdkddkver.h>
 #include <windows.h>
 #include <shlobj.h>
@@ -6,9 +6,11 @@
 #include <iostream>
 #include <string>
 #include <userenv.h>
-#include <errno.h>  // Ìí¼ÓerrnoÍ·ÎÄ¼ş
+#include <errno.h>  // æ·»åŠ errnoå¤´æ–‡ä»¶
 #include <fstream>
+#include <shlwapi.h>   // ä¸ºäº† PathAppendA
 
+#pragma comment(lib, "shlwapi.lib")
 #pragma comment(lib, "shell32.lib")
 #pragma comment(lib, "userenv.lib")
 
@@ -16,7 +18,7 @@ using std::string;
 using std::cout;
 using std::cerr;
 
-/* =========== ÓïÑÔ°ü =========== */
+/* =========== è¯­è¨€åŒ… =========== */
 struct L10N {
     string title = "VSenv - Stand-alone VS Code instance manager";
     string created = "Instance '%s' created at %s";
@@ -25,18 +27,48 @@ struct L10N {
     string started = "Started %s";
     string stopped = "Stopped %s";
     string removed = "Removed %s";
+    string registOK = "code:// now redirects to instance '%s'";
+    string logoffOK = "code:// restored to original VS Code";
+    string restHint = "æ— æ³•è·³è½¬è‡³ VS Codeï¼Ÿä½¿ç”¨ --rest ä»¥æ¢å¤/é‡å»º code:// åè®®";
 };
 
-static const L10N EN; // Ä¬ÈÏÓ¢ÎÄ
-static L10N CN = { "VSenv - ¶ÀÁ¢ VS Code ÊµÀı¹ÜÀíÆ÷",
-                   "ÊµÀı '%s' ÒÑ´´½¨£º%s",
-                   "Çë°ÑÀëÏß°ü½âÑ¹µ½ %s\\vscode\\",
-                   "Î´ÕÒµ½ Code.exe£¬Çë¼ì²éÂ·¾¶¡£",
-                   "ÒÑÆô¶¯ %s",
-                   "ÒÑÍ£Ö¹ %s",
-                   "ÒÑÉ¾³ı %s" };
+static const L10N EN; // é»˜è®¤è‹±æ–‡
+static L10N CN = { "VSenv - ç‹¬ç«‹ VS Code å®ä¾‹ç®¡ç†å™¨",
+                   "å®ä¾‹ '%s' å·²åˆ›å»ºï¼š%s",
+                   "è¯·æŠŠç¦»çº¿åŒ…è§£å‹åˆ° %s\\vscode\\",
+                   "æœªæ‰¾åˆ° Code.exeï¼Œè¯·æ£€æŸ¥è·¯å¾„ã€‚",
+                   "å·²å¯åŠ¨ %s",
+                   "å·²åœæ­¢ %s",
+                   "å·²åˆ é™¤ %s",
+                   "code:// ç°åœ¨ä¼šè·³è½¬åˆ°å®ä¾‹'%s'",
+                   "code:// ç°åœ¨ä¼šè·³è½¬åˆ°åŸæ¥çš„VSCode"};
 
-/* =========== ¹¤¾ßº¯Êı =========== */
+/* =========== å·¥å…·å‡½æ•° =========== */
+bool fileExists(const std::string& path);
+
+
+bool restoreCodeProtocol(const std::string& codePath)
+{
+    if (!fileExists(codePath)) return false;
+
+    std::string cmd = "\"" + codePath + "\" --open-url -- \"%1\"";
+
+    // 1. é‡å»ºå‘½ä»¤
+    HKEY hKey;
+    std::string key = "Software\\Classes\\code\\shell\\open\\command";
+    RegCreateKeyExA(HKEY_CURRENT_USER, key.c_str(), 0, nullptr, 0, KEY_WRITE, nullptr, &hKey, nullptr);
+    RegSetValueExA(hKey, "", 0, REG_SZ, (LPBYTE)cmd.c_str(), (DWORD)cmd.size() + 1);
+    RegCloseKey(hKey);
+
+    // 2. åŠ  URL Protocol
+    key = "Software\\Classes\\code";
+    RegCreateKeyExA(HKEY_CURRENT_USER, key.c_str(), 0, nullptr, 0, KEY_WRITE, nullptr, &hKey, nullptr);
+    RegSetValueExA(hKey, "URL Protocol", 0, REG_SZ, (LPBYTE)"", 1);
+    RegCloseKey(hKey);
+
+    return true;
+}
+
 string homeDir() {
     char buf[MAX_PATH];
     SHGetFolderPathA(nullptr, CSIDL_PROFILE, nullptr, 0, buf);
@@ -48,14 +80,168 @@ bool fileExists(const string& path) {
     return GetFileAttributesA(path.c_str()) != INVALID_FILE_ATTRIBUTES;
 }
 
-/* =========== ²Êµ° =========== */
+bool backupOriginalCodeHandler()
+{
+    char buf[1024];
+    DWORD len = sizeof(buf);
+    // å¦‚æœä»æ¥æ²¡æœ‰å¤‡ä»½è¿‡ï¼Œå°±å¤‡ä»½ä¸€æ¬¡
+    if (RegGetValueA(HKEY_CURRENT_USER,
+        "Software\\Classes\\code\\shell\\open\\command",
+        "", RRF_RT_REG_SZ, nullptr, buf, &len) == ERROR_SUCCESS)
+    {
+        RegSetKeyValueA(HKEY_CURRENT_USER,
+            "Software\\Classes",
+            "vsenv_backup_code_cmd",
+            REG_SZ,
+            buf,
+            len);
+        return true;
+    }
+    return false;
+}
+
+bool restoreOriginalCodeHandler()
+{
+    char buf[1024];
+    DWORD len = sizeof(buf);
+    if (RegGetValueA(HKEY_CURRENT_USER,
+        "Software\\Classes",
+        "vsenv_backup_code_cmd",
+        RRF_RT_REG_SZ, nullptr, buf, &len) == ERROR_SUCCESS)
+    {
+        // é‡å»º code:// å¹¶å†™å…¥åŸå‘½ä»¤
+        HKEY hKey;
+        RegCreateKeyA(HKEY_CURRENT_USER,
+            "Software\\Classes\\code\\shell\\open\\command",
+            &hKey);
+        RegSetValueExA(hKey, "", 0, REG_SZ, (LPBYTE)buf, len);
+        RegCloseKey(hKey);
+
+        RegSetKeyValueA(HKEY_CURRENT_USER,
+            "Software\\Classes\\code",
+            "URL Protocol", REG_SZ, "", 1);
+
+        // åˆ é™¤å¤‡ä»½
+        RegDeleteKeyValueA(HKEY_CURRENT_USER,
+            "Software\\Classes",
+            "vsenv_backup_code_cmd");
+        return true;
+    }
+    return false;
+}
+
+string officialCodeExe() {
+    char pf[MAX_PATH];
+    SHGetFolderPathA(nullptr, CSIDL_LOCAL_APPDATA, nullptr, 0, pf);
+    string path = string(pf) + "\\Programs\\Microsoft VS Code\\Code.exe";
+    return fileExists(path) ? path : "";
+}
+
+bool registerCustomProtocol(const string& instanceName)
+{
+    // 1. æ‹¼ç»å¯¹è·¯å¾„
+    char userProfile[MAX_PATH];
+    SHGetFolderPathA(nullptr, CSIDL_PROFILE, nullptr, 0, userProfile);
+
+    char exePath[MAX_PATH];
+    PathCombineA(exePath, userProfile, (".vsenv\\" + instanceName + "\\vscode\\Code.exe").c_str());
+
+    char dataDir[MAX_PATH];
+    PathCombineA(dataDir, userProfile, (".vsenv\\" + instanceName + "\\data").c_str());
+
+    char extDir[MAX_PATH];
+    PathCombineA(extDir, userProfile, (".vsenv\\" + instanceName + "\\extensions").c_str());
+
+    // 2. æ‹¼æœ€ç»ˆå‘½ä»¤è¡Œï¼Œç”¨ \ è½¬ä¹‰åŒå¼•å·
+    string cmdLine;
+    cmdLine += "\"";
+    cmdLine += exePath;
+    cmdLine += "\" --user-data-dir=\"";
+    cmdLine += dataDir;
+    cmdLine += "\" --extensions-dir=\"";
+    cmdLine += extDir;
+    cmdLine += "\" \"%1\"";
+
+    // 3. å†™æ³¨å†Œè¡¨
+    HKEY hKey;
+    string protocol = "Software\\Classes\\vsenv-" + instanceName;
+
+    // æ ¹é”®
+    RegCreateKeyExA(HKEY_CURRENT_USER, protocol.c_str(), 0, nullptr, 0, KEY_WRITE, nullptr, &hKey, nullptr);
+    RegSetValueExA(hKey, "", 0, REG_SZ, (LPBYTE)("URL:vsenv-" + instanceName).c_str(), (DWORD)("URL:vsenv-" + instanceName).size() + 1);
+    RegSetValueExA(hKey, "URL Protocol", 0, REG_SZ, (LPBYTE)"", 1);
+    RegCloseKey(hKey);
+
+    // shell\open\command
+    protocol += "\\shell\\open\\command";
+    RegCreateKeyExA(HKEY_CURRENT_USER, protocol.c_str(), 0, nullptr, 0, KEY_WRITE, nullptr, &hKey, nullptr);
+    RegSetValueExA(hKey, "", 0, REG_SZ, (LPBYTE)cmdLine.c_str(), (DWORD)cmdLine.size() + 1);
+    RegCloseKey(hKey);
+
+    return true;
+}
+
+/* =========== åè®®åŠ«æŒ / è¿˜åŸ =========== */
+bool registCodeProtocol(const string& instanceName) {
+    char userProfile[MAX_PATH];
+    SHGetFolderPathA(nullptr, CSIDL_PROFILE, nullptr, 0, userProfile);
+
+    char exePath[MAX_PATH];
+    PathCombineA(exePath, userProfile, (".vsenv\\" + instanceName + "\\vscode\\Code.exe").c_str());
+    if (!fileExists(exePath)) return false;
+
+    char dataDir[MAX_PATH];
+    PathCombineA(dataDir, userProfile, (".vsenv\\" + instanceName + "\\data").c_str());
+    char extDir[MAX_PATH];
+    PathCombineA(extDir, userProfile, (".vsenv\\" + instanceName + "\\extensions").c_str());
+
+    string cmdLine = "\"" + string(exePath) + "\" --user-data-dir=\"" + string(dataDir) +
+        "\" --extensions-dir=\"" + string(extDir) + "\" \"%1\"";
+
+    HKEY hKey;
+    string key = "Software\\Classes\\code\\shell\\open\\command";
+    if (RegCreateKeyExA(HKEY_CURRENT_USER, key.c_str(), 0, nullptr, 0, KEY_WRITE, nullptr, &hKey, nullptr) != ERROR_SUCCESS)
+        return false;
+    RegSetValueExA(hKey, "", 0, REG_SZ, (LPBYTE)cmdLine.c_str(), (DWORD)cmdLine.size() + 1);
+    RegCloseKey(hKey);
+
+    // å»º protocol é”®ï¼Œé˜²æ­¢ç³»ç»Ÿä¸è®¤
+    key = "Software\\Classes\\code";
+    if (RegCreateKeyExA(HKEY_CURRENT_USER, key.c_str(), 0, nullptr, 0, KEY_WRITE, nullptr, &hKey, nullptr) != ERROR_SUCCESS)
+        return false;
+    RegSetValueExA(hKey, "URL Protocol", 0, REG_SZ, (LPBYTE)"", 1);
+    RegCloseKey(hKey);
+    return true;
+}
+
+bool logoffCodeProtocol() {
+    SHDeleteKeyA(HKEY_CURRENT_USER, "Software\\Classes\\code");
+    return true;
+}
+
+std::string askCodePath()
+{
+    OPENFILENAMEA ofn{};
+    char szFile[MAX_PATH]{};
+    ofn.lStructSize = sizeof(ofn);
+    ofn.lpstrFile = szFile;
+    ofn.nMaxFile = MAX_PATH;
+    ofn.lpstrFilter = "Code.exe\0Code.exe\0";
+    ofn.lpstrTitle = "è¯·é€‰æ‹© VS Code å®‰è£…ç›®å½•ä¸‹çš„ Code.exe";
+    ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST;
+    if (GetOpenFileNameA(&ofn))
+        return szFile;
+    return {};
+}
+
+/* =========== å½©è›‹ =========== */
 void printBanner() {
     cout << "==================================\n";
-    cout << "  ×·ËæÂíË¹¿ËµÄ²½·¥£¬¼á³ÖÃâ·Ñ¿ªÔ´\n";
+    cout << "  è¿½éšé©¬æ–¯å…‹çš„æ­¥ä¼ï¼ŒåšæŒå…è´¹å¼€æº\n";
     cout << "==================================\n\n";
 }
 
-/* =========== ¸ôÀë·½°¸ÊµÏÖ =========== */
+/* =========== éš”ç¦»æ–¹æ¡ˆå®ç° =========== */
 bool startInSandbox(const string& name, const L10N& L) {
     string dir = rootDir(name);
     string exe = dir + "\\vscode\\Code.exe";
@@ -92,10 +278,10 @@ bool startInAppContainer(const string& name, const L10N& L) {
         return false;
     }
 
-    // 1. ´´½¨ AppContainer ÅäÖÃÎÄ¼ş
+    // 1. åˆ›å»º AppContainer é…ç½®æ–‡ä»¶
     PSID appContainerSid = nullptr;
 
-    // Ìí¼Ó UI ·ÃÎÊÄÜÁ¦
+    // æ·»åŠ  UI è®¿é—®èƒ½åŠ›
     WELL_KNOWN_SID_TYPE capabilities[] = {
         WinCapabilityInternetClientSid,
         WinCapabilityPrivateNetworkClientServerSid,
@@ -124,17 +310,17 @@ bool startInAppContainer(const string& name, const L10N& L) {
         &appContainerSid
     );
 
-    // ÇåÀíÄÜÁ¦Êı×é
+    // æ¸…ç†èƒ½åŠ›æ•°ç»„
     for (int i = 0; i < ARRAYSIZE(capabilities); i++) {
         LocalFree(caps[i].Sid);
     }
 
     if (FAILED(hr) && hr != HRESULT_FROM_WIN32(ERROR_ALREADY_EXISTS)) {
-        cerr << "´´½¨ AppContainer Ê§°Ü: 0x" << std::hex << hr << "\n";
+        cerr << "åˆ›å»º AppContainer å¤±è´¥: 0x" << std::hex << hr << "\n";
         return false;
     }
 
-    // 2. ×¼±¸½ø³ÌÊôĞÔÁĞ±í
+    // 2. å‡†å¤‡è¿›ç¨‹å±æ€§åˆ—è¡¨
     STARTUPINFOEXA siex = { sizeof(siex) };
     PROCESS_INFORMATION pi = {};
 
@@ -146,12 +332,12 @@ bool startInAppContainer(const string& name, const L10N& L) {
     if (!siex.lpAttributeList ||
         !InitializeProcThreadAttributeList(siex.lpAttributeList, 1, 0, &size))
     {
-        cerr << "³õÊ¼»¯ÊôĞÔÁĞ±íÊ§°Ü\n";
+        cerr << "åˆå§‹åŒ–å±æ€§åˆ—è¡¨å¤±è´¥\n";
         if (siex.lpAttributeList) HeapFree(GetProcessHeap(), 0, siex.lpAttributeList);
         return false;
     }
 
-    // 3. ÉèÖÃ AppContainer ÊôĞÔ
+    // 3. è®¾ç½® AppContainer å±æ€§
     SECURITY_CAPABILITIES sc = {};
     sc.AppContainerSid = appContainerSid;
     sc.Capabilities = caps;
@@ -165,31 +351,31 @@ bool startInAppContainer(const string& name, const L10N& L) {
         nullptr,
         nullptr))
     {
-        cerr << "¸üĞÂÏß³ÌÊôĞÔÊ§°Ü: " << GetLastError() << "\n";
+        cerr << "æ›´æ–°çº¿ç¨‹å±æ€§å¤±è´¥: " << GetLastError() << "\n";
         DeleteProcThreadAttributeList(siex.lpAttributeList);
         HeapFree(GetProcessHeap(), 0, siex.lpAttributeList);
         return false;
     }
 
-    // 4. ×¼±¸ÃüÁîĞĞ²ÎÊı
+    // 4. å‡†å¤‡å‘½ä»¤è¡Œå‚æ•°
     string args = "--user-data-dir=\"" + dir + "\\data\" --extensions-dir=\"" + dir + "\\extensions\"";
     string cmdLine = "\"" + exe + "\" " + args;
 
-    // 5. ´´½¨½ø³Ì
+    // 5. åˆ›å»ºè¿›ç¨‹
     BOOL success = CreateProcessA(
         exe.c_str(),
         const_cast<char*>(cmdLine.c_str()),
         nullptr,
         nullptr,
         FALSE,
-        EXTENDED_STARTUPINFO_PRESENT | CREATE_NEW_CONSOLE, // Ìí¼Ó CREATE_NEW_CONSOLE
+        EXTENDED_STARTUPINFO_PRESENT | CREATE_NEW_CONSOLE, // æ·»åŠ  CREATE_NEW_CONSOLE
         nullptr,
         nullptr,
         &siex.StartupInfo,
         &pi
     );
 
-    // 6. ÇåÀí×ÊÔ´
+    // 6. æ¸…ç†èµ„æº
     DeleteProcThreadAttributeList(siex.lpAttributeList);
     HeapFree(GetProcessHeap(), 0, siex.lpAttributeList);
 
@@ -200,7 +386,7 @@ bool startInAppContainer(const string& name, const L10N& L) {
         return true;
     }
     else {
-        cerr << "CreateProcess Ê§°Ü: " << GetLastError() << "\n";
+        cerr << "CreateProcess å¤±è´¥: " << GetLastError() << "\n";
         return false;
     }
 }
@@ -232,11 +418,11 @@ void startWithNetworkIsolation(const string& name, const L10N& L, bool randomHos
     string exe = dir + "\\vscode\\Code.exe";
     if (!fileExists(exe)) { cerr << L.notFound << "\n"; return; }
 
-    // ¼ò»¯²¢ĞŞ¸´ PowerShell ½Å±¾
+    // ç®€åŒ–å¹¶ä¿®å¤ PowerShell è„šæœ¬
     string psScript = "powershell -Command \"\n";
     psScript += "    $InstanceName = '" + name + "'\n";
 
-    // ÉèÖÃ²¼¶û±äÁ¿
+    // è®¾ç½®å¸ƒå°”å˜é‡
     if (randomHost) psScript += "    $RandomHost = $true\n";
     else psScript += "    $RandomHost = $false\n";
 
@@ -247,54 +433,54 @@ void startWithNetworkIsolation(const string& name, const L10N& L, bool randomHos
     else psScript += "    $Proxy = $null\n";
 
     psScript +=
-        "    # ¼ì²é¹ÜÀíÔ±È¨ÏŞ\n"
+        "    # æ£€æŸ¥ç®¡ç†å‘˜æƒé™\n"
         "    $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)\n"
         "    if (-not $isAdmin) {\n"
-        "        Write-Warning 'ĞèÒª¹ÜÀíÔ±È¨ÏŞÖ´ĞĞÍøÂç¸ôÀë²Ù×÷'\n"
+        "        Write-Warning 'éœ€è¦ç®¡ç†å‘˜æƒé™æ‰§è¡Œç½‘ç»œéš”ç¦»æ“ä½œ'\n"
         "    }\n"
         "    \n"
-        "    # Ëæ»úÖ÷»úÃû\n"
+        "    # éšæœºä¸»æœºå\n"
         "    if ($RandomHost -and $isAdmin) {\n"
         "        $env:ORIGINAL_HOSTNAME = $env:COMPUTERNAME\n"
         "        $HostName = 'VS-' + (Get-Random -Minimum 1000 -Maximum 9999)\n"
         "        Rename-Computer -NewName $HostName -Force\n"
         "    }\n"
         "    \n"
-        "    # Ëæ»úMACµØÖ·\n"
+        "    # éšæœºMACåœ°å€\n"
         "    if ($RandomMac -and $isAdmin) {\n"
         "        try {\n"
         "            $MacBytes = 1..5 | ForEach-Object { Get-Random -Minimum 0 -Maximum 255 }\n"
         "            $Mac = '02:{0:X2}:{1:X2}:{2:X2}:{3:X2}:{4:X2}' -f $MacBytes\n"
         "            New-NetAdapter -Name (\"VSenv-$InstanceName\") -MacAddress $Mac -Confirm:$false\n"
         "        } catch {\n"
-        "            Write-Warning 'ÎŞ·¨´´½¨ĞéÄâÍø¿¨£¬ÇëÒÔ¹ÜÀíÔ±Éí·İÔËĞĞ'\n"
+        "            Write-Warning 'æ— æ³•åˆ›å»ºè™šæ‹Ÿç½‘å¡ï¼Œè¯·ä»¥ç®¡ç†å‘˜èº«ä»½è¿è¡Œ'\n"
         "        }\n"
         "    }\n"
         "    \n"
-        "    # ´úÀíÉèÖÃ\n"
+        "    # ä»£ç†è®¾ç½®\n"
         "    if ($Proxy -and $Proxy -ne '') {\n"
         "        netsh winhttp set proxy $Proxy\n"
-        "        Write-Host \"ÒÑÆôÓÃ´úÀí $Proxy\"\n"
+        "        Write-Host \"å·²å¯ç”¨ä»£ç† $Proxy\"\n"
         "    } else {\n"
         "        netsh winhttp reset proxy\n"
-        "        Write-Host 'ÒÑ»Ö¸´Ö±Á¬'\n"
+        "        Write-Host 'å·²æ¢å¤ç›´è¿'\n"
         "    }\n"
         "\"";
 
-    // Êä³ö½Å±¾µ½ÎÄ¼şÓÃÓÚµ÷ÊÔ
+    // è¾“å‡ºè„šæœ¬åˆ°æ–‡ä»¶ç”¨äºè°ƒè¯•
     std::ofstream scriptFile("debug_script.ps1");
     if (scriptFile.is_open()) {
         scriptFile << psScript;
         scriptFile.close();
     }
     else {
-        cerr << "ÎŞ·¨´´½¨µ÷ÊÔ½Å±¾ÎÄ¼ş\n";
+        cerr << "æ— æ³•åˆ›å»ºè°ƒè¯•è„šæœ¬æ–‡ä»¶\n";
     }
 
-    // Ö´ĞĞ PowerShell ½Å±¾
+    // æ‰§è¡Œ PowerShell è„šæœ¬
     system(psScript.c_str());
 
-    // Æô¶¯ VS Code
+    // å¯åŠ¨ VS Code
     string args = "\"" + exe + "\" --user-data-dir=\"" + dir + "\\data\" --extensions-dir=\"" + dir + "\\extensions\"";
     STARTUPINFOA si{ sizeof(si) };
     PROCESS_INFORMATION pi{};
@@ -306,45 +492,48 @@ void startWithNetworkIsolation(const string& name, const L10N& L, bool randomHos
         printf(L.started.c_str(), name.c_str());
     }
     else {
-        cerr << "Æô¶¯Ê§°Ü£¬´íÎó´úÂë: " << GetLastError() << "\n";
+        cerr << "å¯åŠ¨å¤±è´¥ï¼Œé”™è¯¯ä»£ç : " << GetLastError() << "\n";
     }
 }
 
-/* =========== ÒµÎñÂß¼­ =========== */
+/* =========== ä¸šåŠ¡é€»è¾‘ =========== */
 void create(const string& name, const L10N& L) {
     string dir = rootDir(name);
 
-    // ĞŞ¸´£ºÕıÈ·µÄÄ¿Â¼´´½¨¼ì²é
-    if (_mkdir(dir.c_str()) == -1) {
-        if (errno != EEXIST) {
-            cerr << "Failed to create directory: " << dir << "\n";
-            return;
-        }
+    if (_mkdir(dir.c_str()) == -1 && errno != EEXIST) {
+        cerr << "Failed to create directory: " << dir << "\n";
+        return;
     }
 
     string dataDir = dir + "\\data";
-    if (_mkdir(dataDir.c_str()) == -1) {
-        if (errno != EEXIST) {
-            cerr << "Failed to create directory: " << dataDir << "\n";
-            return;
-        }
+    if (_mkdir(dataDir.c_str()) == -1 && errno != EEXIST) {
+        cerr << "Failed to create directory: " << dataDir << "\n";
+        return;
     }
 
     string extDir = dir + "\\extensions";
-    if (_mkdir(extDir.c_str()) == -1) {
-        if (errno != EEXIST) {
-            cerr << "Failed to create directory: " << extDir << "\n";
-            return;
-        }
+    if (_mkdir(extDir.c_str()) == -1 && errno != EEXIST) {
+        cerr << "Failed to create directory: " << extDir << "\n";
+        return;
+    }
+
+    if (!registerCustomProtocol(name)) {
+        cerr << "Failed to register custom protocol for Augment login.\n";
     }
 
     printf(L.created.c_str(), name.c_str(), dir.c_str());
     printf(("\n" + L.copyHint).c_str(), dir.c_str());
+    cout << "\nAugment login can use: vsenv-" << name << "://\n";
 }
 
 void start(const string& name, const L10N& L,
     bool randomHost, bool randomMac, const string& proxy,
-    bool useSandbox, bool useAppContainer, bool useWSB) {
+    bool useSandbox, bool useAppContainer, bool useWSB, bool useAugment) {
+
+    if (useAugment) {
+        cout << "To use Augment login with this instance, use URL: vsenv-" << name << "://\n";
+        return;
+    }
 
     if (useSandbox) {
         if (startInSandbox(name, L)) return;
@@ -380,11 +569,11 @@ void start(const string& name, const L10N& L,
 }
 
 void stop(const string& name, const L10N& L, char* argv0) {
-    // 1. É±½ø³Ì
+    // 1. æ€è¿›ç¨‹
     system(("taskkill /FI \"WINDOWTITLE eq " + name + "*\" /T /F >nul 2>&1").c_str());
 
-    // 2. µ÷ÓÃÍâ²¿½Å±¾
-    //    ¼ÙÉè½Å±¾Óë exe Í¬Ä¿Â¼£»Èô·ÅÔÚ±ğ´¦Çë×ÔĞĞµ÷ÕûÂ·¾¶
+    // 2. è°ƒç”¨å¤–éƒ¨è„šæœ¬
+    //    å‡è®¾è„šæœ¬ä¸ exe åŒç›®å½•ï¼›è‹¥æ”¾åœ¨åˆ«å¤„è¯·è‡ªè¡Œè°ƒæ•´è·¯å¾„
     string cmd = "pwsh -NoLogo -NoProfile -ExecutionPolicy Bypass -File \""
         + string(argv0).substr(0, string(argv0).find_last_of("\\/"))
         + "\\vsenv-stop.ps1\" -InstanceName \"" + name + "\"";
@@ -395,17 +584,25 @@ void stop(const string& name, const L10N& L, char* argv0) {
 
 void remove(const string& name, const L10N& L, char* argv0) {
     stop(name, L, argv0);
+
+    // 1. å¦‚æœå½“å‰åŠ«æŒçš„æ˜¯æœ¬å®ä¾‹ï¼Œå…ˆè¿˜åŸ code://
+    restoreOriginalCodeHandler();
+
+    // 2. åˆ é™¤å®ä¾‹ç§æœ‰åè®®
+    SHDeleteKeyA(HKEY_CURRENT_USER, ("Software\\Classes\\vsenv-" + name).c_str());
+
+    // 3. åˆ é™¤ç›®å½•
     system(("rmdir /s /q \"" + rootDir(name) + "\"").c_str());
     printf(L.removed.c_str(), name.c_str());
 }
 
-/* =========== Èë¿Ú =========== */
+/* =========== å…¥å£ =========== */
 int main(int argc, char** argv) {
     printBanner();
     L10N lang = EN;
     bool randomHost = false, randomMac = false;
     string proxy;
-    bool useSandbox = false, useAppContainer = false, useWSB = false;
+    bool useSandbox = false, useAppContainer = false, useWSB = false, useAugment = false, rest = false;
 
     for (int i = 1; i < argc; ++i) {
         if (strcmp(argv[i], "--lang") == 0 && i + 1 < argc) {
@@ -420,14 +617,43 @@ int main(int argc, char** argv) {
         else if (strcmp(argv[i], "--sandbox") == 0) useSandbox = true;
         else if (strcmp(argv[i], "--appcontainer") == 0) useAppContainer = true;
         else if (strcmp(argv[i], "--wsb") == 0) useWSB = true;
+        else if (strcmp(argv[i], "--augment") == 0) useAugment = true;
     }
 
-    if (argc < 3) {  // ĞŞ¸´£ºĞèÒªÖÁÉÙ3¸ö²ÎÊı£¨ÃüÁî+ÊµÀıÃû£©
+    if (argc < 3) {
         cerr << "Usage:\n"
             "  vsenv create <instance> [--lang cn]\n"
-            "  vsenv start  <instance> [--lang cn] [--host] [--mac] [--proxy <url>] [--sandbox|--appcontainer|--wsb]\n"
+            "  vsenv start  <instance> [--lang cn] [--host] [--mac] [--proxy <url>] [--sandbox|--appcontainer|--wsb] [--augment]\n"
             "  vsenv stop   <instance> [--lang cn]\n"
-            "  vsenv remove <instance> [--lang cn]\n";
+            "  vsenv remove <instance> [--lang cn]\n"
+            "  vsenv regist  <instance>        # redirect code:// to this instance\n"
+            "  vsenv logoff                    # restore original code:// handler\n"
+            "  vsenv rest                   # æ‰‹åŠ¨é€‰æ‹© VS Code è·¯å¾„å¹¶é‡å»º code://\n"
+            "\n"
+            "Global options:\n"
+            "  --lang <en|cn>   Set display language. Default is \"en\".\n"
+            "\n"
+            "vsenv start options:\n"
+            "  --host              Randomise the hostname inside the current Windows session\n"
+            "                      (requires elevation). Useful to hide the real computer name.\n"
+            "  --mac               Generate a random MAC address and create a temporary\n"
+            "                      virtual NIC named VSenv-<instance> (requires elevation).\n"
+            "  --proxy <url>       Force WinHTTP traffic through the given HTTP(S) proxy.\n"
+            "                      Example: --proxy http://127.0.0.1:8080\n"
+            "  --sandbox           Launch VS Code in a restricted Logon-Session sandbox\n"
+            "                      (legacy method, low isolation).\n"
+            "  --appcontainer(WIP) Launch VS Code inside an AppContainer\n"
+            "                      (medium isolation, Win32k lockdown, no admin rights).\n"
+            "  --wsb(WIP)          Launch VS Code inside Windows Sandbox (full virtual OS,\n"
+            "                      best isolation, requires Windows Pro/Enterprise).\n"
+            "  --augment           Print the custom URL scheme \"vsenv-<instance>://\" that\n"
+            "                      can be used in Augment login flows. This scheme redirects\n"
+            "                      Augment authentication to the isolated VS Code instance.\n"
+            "\n"
+            "Examples:\n"
+            "  vsenv create work --lang cn\n"
+            "  vsenv start work --appcontainer --augment\n"
+            "  vsenv start work --host --mac --proxy http://proxy.internal:3128 --wsb\n";
         return 1;
     }
 
@@ -436,7 +662,7 @@ int main(int argc, char** argv) {
         create(name, lang);
     }
     else if (cmd == "start") {
-        start(name, lang, randomHost, randomMac, proxy, useSandbox, useAppContainer, useWSB);
+        start(name, lang, randomHost, randomMac, proxy, useSandbox, useAppContainer, useWSB, useAugment);
     }
     else if (cmd == "stop") {
         stop(name, lang, argv[0]);
@@ -444,8 +670,40 @@ int main(int argc, char** argv) {
     else if (cmd == "remove") {
         remove(name, lang, argv[0]);
     }
+    else if (cmd == "regist") {
+        backupOriginalCodeHandler();   // å…ˆå¤‡ä»½
+        if (registCodeProtocol(name)) {
+            printf(lang.registOK.c_str(), name.c_str());
+        }
+        else {
+            cerr << "Regist failed\n";
+        }
+    }
+    else if (cmd == "logoff") {
+        if (restoreOriginalCodeHandler()) {
+            cout << lang.logoffOK << "\n";
+        }
+        else {
+            cerr << "Failed to restore code://\n";
+        }
+    }
+    else if (cmd == "rest") {
+        cout << lang.restHint << "\n";
+        string path = askCodePath();
+        if (path.empty()) {
+            cerr << "æœªé€‰æ‹©è·¯å¾„ï¼Œå–æ¶ˆæ¢å¤ã€‚\n";
+            return 1;
+        }
+        if (restoreCodeProtocol(path)) {
+            cout << "âœ… code:// å·²æ¢å¤ï¼\n";
+        }
+        else {
+            cerr << "æ¢å¤å¤±è´¥ï¼Œè¯·æ£€æŸ¥è·¯å¾„ã€‚\n";
+        }
+        return 0;
+    }
     else {
-        cerr << "Invalid command\n";
+        cerr << "Invalid command '" << cmd << "'";
         return 1;
     }
     return 0;
