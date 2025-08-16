@@ -4,13 +4,13 @@
 	该程序允许用户创建、启动、停止和删除独立的 VS Code 实例，
 	每个实例拥有独立的用户数据和扩展目录。
 
-    版本：beta 0.1.0
+    版本：beta 0.2.0
 
 */
 
 // 常量定义
 
-#define VSENV_VERSION "0.1.0"
+#define VSENV_VERSION "0.2.0"
 #define VSENV_AUTHOR "dhjs0000"
 #define VSENV_LICENSE "AGPLv3.0"
 
@@ -646,7 +646,7 @@ int main(int argc, char** argv) {
             "  vsenv remove <instance> [--lang cn]\n"
             "  vsenv regist  <instance>        # redirect code:// to this instance\n"
             "  vsenv logoff                    # restore original code:// handler\n"
-            "  vsenv rest                   # 手动选择 VS Code 路径并重建 code://\n"
+            "  vsenv rest <path>               # 手动重建 code:// 协议 (支持拖拽带双引号的路径)\n"
             "\n"
             "Global options:\n"
             "  --lang <en|cn>   Set display language. Default is \"en\".\n"
@@ -675,7 +675,47 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    string cmd = argv[1], name = argv[2];
+    string cmd = argv[1];
+    if (cmd == "rest") {
+        // 处理带双引号的路径 (用户拖拽文件时可能包含)
+        string path;
+        if (argc >= 3) {
+            path = argv[2];
+            // 去除路径两端的双引号
+            if (path.size() >= 2 && path.front() == '"' && path.back() == '"') {
+                path = path.substr(1, path.size() - 2);
+            }
+        }
+
+        if (path.empty()) {
+            cerr << "错误：请提供 VS Code 的 Code.exe 路径\n";
+            cerr << "用法: vsenv rest \"C:\\Path\\To\\Code.exe\"\n";
+            return 1;
+        }
+
+        // 检查路径是否存在
+        if (!fileExists(path)) {
+            cerr << "错误：文件不存在 - " << path << "\n";
+            return 1;
+        }
+
+        // 恢复协议
+        if (restoreCodeProtocol(path)) {
+            cout << "✅ code:// 协议已成功恢复至: " << path << "\n";
+        }
+        else {
+            cerr << "恢复失败，请检查路径和权限\n";
+        }
+        return 0;
+    }
+
+    // 其他命令需要实例名称
+    if (argc < 3) {
+        cerr << "错误：需要实例名称\n";
+        return 1;
+    }
+
+    string name = argv[2];
     if (cmd == "create") {
         create(name, lang);
     }
@@ -694,7 +734,7 @@ int main(int argc, char** argv) {
             printf(lang.registOK.c_str(), name.c_str());
         }
         else {
-            cerr << "Regist failed\n";
+            cerr << "注册失败\n";
         }
     }
     else if (cmd == "logoff") {
@@ -702,26 +742,11 @@ int main(int argc, char** argv) {
             cout << lang.logoffOK << "\n";
         }
         else {
-            cerr << "Failed to restore code://\n";
+            cerr << "恢复 code:// 失败\n";
         }
-    }
-    else if (cmd == "rest") {
-        cout << lang.restHint << "\n";
-        string path = askCodePath();
-        if (path.empty()) {
-            cerr << "未选择路径，取消恢复。\n";
-            return 1;
-        }
-        if (restoreCodeProtocol(path)) {
-            cout << "✅ code:// 已恢复！\n";
-        }
-        else {
-            cerr << "恢复失败，请检查路径。\n";
-        }
-        return 0;
     }
     else {
-        cerr << "Invalid command '" << cmd << "'";
+        cerr << "无效命令 '" << cmd << "'";
         return 1;
     }
     return 0;
