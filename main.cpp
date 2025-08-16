@@ -5,7 +5,6 @@
     每个实例拥有独立的用户数据和扩展目录。
 
     版本：beta 0.2.0
-
 */
 
 // 常量定义
@@ -26,6 +25,8 @@
 #include <errno.h>  // 添加errno头文件
 #include <fstream>
 #include <shlwapi.h>   // 为了 PathAppendA
+#include <random>      // 添加随机数生成
+#include <iomanip>     // 添加流格式化
 
 #pragma comment(lib, "shlwapi.lib")
 #pragma comment(lib, "shell32.lib")
@@ -46,7 +47,8 @@ struct L10N {
     string removed = "Removed %s";
     string registOK = "vscode:// now redirects to instance '%s'";
     string logoffOK = "vscode:// restored to original VS Code";
-    string restHint = "无法跳转至 VS Code？使用 --rest 以恢复/重建 vscode:// 协议";
+    string restHint = "Cannot redirect to VS Code? Use --rest to restore/rebuild vscode:// protocol";
+    string fakeHW = "Hardware fingerprints randomized: CPUID=%s, DiskSN=%s, MAC=%s";
 };
 
 static const L10N EN; // 默认英文
@@ -59,7 +61,8 @@ static L10N CN = { "VSenv - 独立 VS Code 实例管理器",
                    "已删除 %s",
                    "vscode:// 现在会跳转到实例'%s'",
                    "vscode:// 现在会跳转到原来的VSCode",
-                   "无法跳转至 VS Code？使用 --rest 以恢复/重建 vscode:// 协议" };
+                   "无法跳转至 VS Code？使用 --rest 以恢复/重建 vscode:// 协议",
+                   "硬件指纹已随机化: CPUID=%s, 磁盘序列号=%s, MAC地址=%s" };
 
 /* =========== 工具函数 =========== */
 bool fileExists(const std::string& path);
@@ -203,7 +206,7 @@ bool registerCustomProtocol(const string& instanceName)
     return true;
 }
 
-/* =========== 协议劫持 / 还原 =========== */
+// 添加缺失的函数定义
 bool registVSCodeProtocol(const string& instanceName) {
     char userProfile[MAX_PATH];
     SHGetFolderPathA(nullptr, CSIDL_PROFILE, nullptr, 0, userProfile);
@@ -238,19 +241,54 @@ bool registVSCodeProtocol(const string& instanceName) {
     return true;
 }
 
-std::string askCodePath()
-{
-    OPENFILENAMEA ofn{};
-    char szFile[MAX_PATH]{};
-    ofn.lStructSize = sizeof(ofn);
-    ofn.lpstrFile = szFile;
-    ofn.nMaxFile = MAX_PATH;
-    ofn.lpstrFilter = "Code.exe\0Code.exe\0";
-    ofn.lpstrTitle = "请选择 VS Code 安装目录下的 Code.exe";
-    ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST;
-    if (GetOpenFileNameA(&ofn))
-        return szFile;
-    return {};
+/* =========== 硬件指纹伪造 =========== */
+struct FakeHardwareID {
+    string cpuID;
+    string diskSN;
+    string macAddress;
+};
+
+FakeHardwareID generateFakeHardwareID() {
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<> dis(0, 255);
+
+    // 生成随机的CPU ID (16字节十六进制)
+    char cpuBuf[17];
+    for (int i = 0; i < 16; i += 4) {
+        sprintf_s(cpuBuf + i, 5, "%04X", dis(gen) << 8 | dis(gen));
+    }
+    cpuBuf[16] = '\0';
+
+    // 生成随机的磁盘序列号 (8字节十六进制)
+    char diskBuf[9];
+    for (int i = 0; i < 8; i += 2) {
+        sprintf_s(diskBuf + i, 3, "%02X", dis(gen));
+    }
+    diskBuf[8] = '\0';
+
+    // 生成随机的MAC地址
+    char macBuf[18];
+    sprintf_s(macBuf, sizeof(macBuf), "%02X:%02X:%02X:%02X:%02X:%02X",
+        dis(gen), dis(gen), dis(gen), dis(gen), dis(gen), dis(gen));
+
+    return { cpuBuf, diskBuf, macBuf };
+}
+
+void applyFakeHardwareProfile(const string& instanceName, const FakeHardwareID& fakeID) {
+    string regPath = "Software\\VSenv\\" + instanceName + "\\Hardware";
+    HKEY hKey;
+    RegCreateKeyExA(HKEY_CURRENT_USER, regPath.c_str(), 0, nullptr,
+        REG_OPTION_NON_VOLATILE, KEY_WRITE, nullptr, &hKey, nullptr);
+
+    RegSetValueExA(hKey, "CPUID", 0, REG_SZ,
+        (const BYTE*)fakeID.cpuID.c_str(), fakeID.cpuID.size() + 1);
+    RegSetValueExA(hKey, "DiskSerial", 0, REG_SZ,
+        (const BYTE*)fakeID.diskSN.c_str(), fakeID.diskSN.size() + 1);
+    RegSetValueExA(hKey, "MACAddress", 0, REG_SZ,
+        (const BYTE*)fakeID.macAddress.c_str(), fakeID.macAddress.size() + 1);
+
+    RegCloseKey(hKey);
 }
 
 /* =========== 彩蛋 =========== */
@@ -538,21 +576,22 @@ void create(const string& name, const L10N& L) {
     }
 
     if (!registerCustomProtocol(name)) {
-        cerr << "Failed to register custom protocol for Augment login.\n";
+        cerr << "Failed to register custom protocol\n";
     }
 
     printf(L.created.c_str(), name.c_str(), dir.c_str());
     printf(("\n" + L.copyHint).c_str(), dir.c_str());
-    cout << "\nAugment login can use: vsenv-" << name << "://\n";
 }
 
 void start(const string& name, const L10N& L,
     bool randomHost, bool randomMac, const string& proxy,
-    bool useSandbox, bool useAppContainer, bool useWSB, bool useAugment) {
+    bool useSandbox, bool useAppContainer, bool useWSB, bool fakeHW) {
 
-    if (useAugment) {
-        cout << "To use Augment login with this instance, use URL: vsenv-" << name << "://\n";
-        return;
+    if (fakeHW) {
+        FakeHardwareID fakeID = generateFakeHardwareID();
+        applyFakeHardwareProfile(name, fakeID);
+        printf(L.fakeHW.c_str(), fakeID.cpuID.c_str(), fakeID.diskSN.c_str(), fakeID.macAddress.c_str());
+        cout << "\n";
     }
 
     if (useSandbox) {
@@ -611,7 +650,10 @@ void remove(const string& name, const L10N& L, char* argv0) {
     // 2. 删除实例私有协议
     SHDeleteKeyA(HKEY_CURRENT_USER, ("Software\\Classes\\vsenv-" + name).c_str());
 
-    // 3. 删除目录
+    // 3. 删除硬件配置文件
+    SHDeleteKeyA(HKEY_CURRENT_USER, ("Software\\VSenv\\" + name).c_str());
+
+    // 4. 删除目录
     system(("rmdir /s /q \"" + rootDir(name) + "\"").c_str());
     printf(L.removed.c_str(), name.c_str());
 }
@@ -622,7 +664,7 @@ int main(int argc, char** argv) {
     L10N lang = EN;
     bool randomHost = false, randomMac = false;
     string proxy;
-    bool useSandbox = false, useAppContainer = false, useWSB = false, useAugment = false, rest = false;
+    bool useSandbox = false, useAppContainer = false, useWSB = false, fakeHW = false, rest = false;
 
     for (int i = 1; i < argc; ++i) {
         if (strcmp(argv[i], "--lang") == 0 && i + 1 < argc) {
@@ -637,13 +679,13 @@ int main(int argc, char** argv) {
         else if (strcmp(argv[i], "--sandbox") == 0) useSandbox = true;
         else if (strcmp(argv[i], "--appcontainer") == 0) useAppContainer = true;
         else if (strcmp(argv[i], "--wsb") == 0) useWSB = true;
-        else if (strcmp(argv[i], "--augment") == 0) useAugment = true;
+        else if (strcmp(argv[i], "--fake-hw") == 0) fakeHW = true;
     }
 
     if (argc < 2) {
         cerr << "Usage:\n"
             "  vsenv create <instance> [--lang cn]\n"
-            "  vsenv start  <instance> [--lang cn] [--host] [--mac] [--proxy <url>] [--sandbox|--appcontainer|--wsb] [--augment]\n"
+            "  vsenv start  <instance> [--lang cn] [--host] [--mac] [--proxy <url>] [--sandbox|--appcontainer|--wsb] [--fake-hw]\n"
             "  vsenv stop   <instance> [--lang cn]\n"
             "  vsenv remove <instance> [--lang cn]\n"
             "  vsenv regist  <instance>        # redirect vscode:// to this instance\n"
@@ -666,13 +708,12 @@ int main(int argc, char** argv) {
             "                      (medium isolation, Win32k lockdown, no admin rights).\n"
             "  --wsb(WIP)          Launch VS Code inside Windows Sandbox (full virtual OS,\n"
             "                      best isolation, requires Windows Pro/Enterprise).\n"
-            "  --augment           Print the custom URL scheme \"vsenv-<instance>://\" that\n"
-            "                      can be used in Augment login flows. This scheme redirects\n"
-            "                      Augment authentication to the isolated VS Code instance.\n"
+            "  --fake-hw           Randomize hardware fingerprints (CPUID, Disk Serial, MAC)\n"
+            "                      for enhanced privacy and isolation.\n"
             "\n"
             "Examples:\n"
             "  vsenv create work --lang cn\n"
-            "  vsenv start work --appcontainer --augment\n"
+            "  vsenv start work --appcontainer --fake-hw\n"
             "  vsenv start work --host --mac --proxy http://proxy.internal:3128 --wsb\n";
         return 1;
     }
@@ -722,7 +763,7 @@ int main(int argc, char** argv) {
         create(name, lang);
     }
     else if (cmd == "start") {
-        start(name, lang, randomHost, randomMac, proxy, useSandbox, useAppContainer, useWSB, useAugment);
+        start(name, lang, randomHost, randomMac, proxy, useSandbox, useAppContainer, useWSB, fakeHW);
     }
     else if (cmd == "stop") {
         stop(name, lang, argv[0]);
