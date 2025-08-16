@@ -132,6 +132,7 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="vsenv-net.ps1" />
+    <None Include="vsenv-stop.ps1" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

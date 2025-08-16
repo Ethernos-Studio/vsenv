@@ -23,5 +23,8 @@
     <None Include="vsenv-net.ps1">
       <Filter>资源文件</Filter>
     </None>
+    <None Include="vsenv-stop.ps1">
+      <Filter>资源文件</Filter>
+    </None>
   </ItemGroup>
 </Project>
