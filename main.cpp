@@ -1,8 +1,8 @@
 ﻿/*
     VSenv --VS Code 离线实例管理器
     以AGPLv3.0开源 dhjs0000版权所有
-	该程序允许用户创建、启动、停止和删除独立的 VS Code 实例，
-	每个实例拥有独立的用户数据和扩展目录。
+    该程序允许用户创建、启动、停止和删除独立的 VS Code 实例，
+    每个实例拥有独立的用户数据和扩展目录。
 
     版本：beta 0.2.0
 
@@ -44,9 +44,9 @@ struct L10N {
     string started = "Started %s";
     string stopped = "Stopped %s";
     string removed = "Removed %s";
-    string registOK = "code:// now redirects to instance '%s'";
-    string logoffOK = "code:// restored to original VS Code";
-    string restHint = "无法跳转至 VS Code？使用 --rest 以恢复/重建 code:// 协议";
+    string registOK = "vscode:// now redirects to instance '%s'";
+    string logoffOK = "vscode:// restored to original VS Code";
+    string restHint = "无法跳转至 VS Code？使用 --rest 以恢复/重建 vscode:// 协议";
 };
 
 static const L10N EN; // 默认英文
@@ -57,8 +57,9 @@ static L10N CN = { "VSenv - 独立 VS Code 实例管理器",
                    "已启动 %s",
                    "已停止 %s",
                    "已删除 %s",
-                   "code:// 现在会跳转到实例'%s'",
-                   "code:// 现在会跳转到原来的VSCode"};
+                   "vscode:// 现在会跳转到实例'%s'",
+                   "vscode:// 现在会跳转到原来的VSCode",
+                   "无法跳转至 VS Code？使用 --rest 以恢复/重建 vscode:// 协议" };
 
 /* =========== 工具函数 =========== */
 bool fileExists(const std::string& path);
@@ -70,15 +71,15 @@ bool restoreCodeProtocol(const std::string& codePath)
 
     std::string cmd = "\"" + codePath + "\" --open-url -- \"%1\"";
 
-    // 1. 重建命令
+    // 1. 重建命令 - 修正为 vscode 协议
     HKEY hKey;
-    std::string key = "Software\\Classes\\code\\shell\\open\\command";
+    std::string key = "Software\\Classes\\vscode\\shell\\open\\command";
     RegCreateKeyExA(HKEY_CURRENT_USER, key.c_str(), 0, nullptr, 0, KEY_WRITE, nullptr, &hKey, nullptr);
     RegSetValueExA(hKey, "", 0, REG_SZ, (LPBYTE)cmd.c_str(), (DWORD)cmd.size() + 1);
     RegCloseKey(hKey);
 
     // 2. 加 URL Protocol
-    key = "Software\\Classes\\code";
+    key = "Software\\Classes\\vscode";
     RegCreateKeyExA(HKEY_CURRENT_USER, key.c_str(), 0, nullptr, 0, KEY_WRITE, nullptr, &hKey, nullptr);
     RegSetValueExA(hKey, "URL Protocol", 0, REG_SZ, (LPBYTE)"", 1);
     RegCloseKey(hKey);
@@ -97,18 +98,19 @@ bool fileExists(const string& path) {
     return GetFileAttributesA(path.c_str()) != INVALID_FILE_ATTRIBUTES;
 }
 
-bool backupOriginalCodeHandler()
+bool backupOriginalVSCodeHandler()
 {
     char buf[1024];
     DWORD len = sizeof(buf);
-    // 如果从来没有备份过，就备份一次
+    // 检查 vscode 协议是否存在
     if (RegGetValueA(HKEY_CURRENT_USER,
-        "Software\\Classes\\code\\shell\\open\\command",
+        "Software\\Classes\\vscode\\shell\\open\\command",
         "", RRF_RT_REG_SZ, nullptr, buf, &len) == ERROR_SUCCESS)
     {
+        // 备份到特定位置
         RegSetKeyValueA(HKEY_CURRENT_USER,
             "Software\\Classes",
-            "vsenv_backup_code_cmd",
+            "vsenv_backup_vscode_cmd",
             REG_SZ,
             buf,
             len);
@@ -117,31 +119,34 @@ bool backupOriginalCodeHandler()
     return false;
 }
 
-bool restoreOriginalCodeHandler()
+bool restoreOriginalVSCodeHandler()
 {
     char buf[1024];
     DWORD len = sizeof(buf);
     if (RegGetValueA(HKEY_CURRENT_USER,
         "Software\\Classes",
-        "vsenv_backup_code_cmd",
+        "vsenv_backup_vscode_cmd",
         RRF_RT_REG_SZ, nullptr, buf, &len) == ERROR_SUCCESS)
     {
-        // 重建 code:// 并写入原命令
+        // 重建 vscode:// 协议
         HKEY hKey;
         RegCreateKeyA(HKEY_CURRENT_USER,
-            "Software\\Classes\\code\\shell\\open\\command",
+            "Software\\Classes\\vscode\\shell\\open\\command",
             &hKey);
         RegSetValueExA(hKey, "", 0, REG_SZ, (LPBYTE)buf, len);
         RegCloseKey(hKey);
 
-        RegSetKeyValueA(HKEY_CURRENT_USER,
-            "Software\\Classes\\code",
-            "URL Protocol", REG_SZ, "", 1);
+        // 设置 URL Protocol
+        RegCreateKeyA(HKEY_CURRENT_USER,
+            "Software\\Classes\\vscode",
+            &hKey);
+        RegSetValueExA(hKey, "URL Protocol", 0, REG_SZ, (LPBYTE)"", 1);
+        RegCloseKey(hKey);
 
         // 删除备份
         RegDeleteKeyValueA(HKEY_CURRENT_USER,
             "Software\\Classes",
-            "vsenv_backup_code_cmd");
+            "vsenv_backup_vscode_cmd");
         return true;
     }
     return false;
@@ -169,15 +174,15 @@ bool registerCustomProtocol(const string& instanceName)
     char extDir[MAX_PATH];
     PathCombineA(extDir, userProfile, (".vsenv\\" + instanceName + "\\extensions").c_str());
 
-    // 2. 拼最终命令行，用 \ 转义双引号
+    // 2. 修复命令行参数：添加 --open-url 和 --
     string cmdLine;
     cmdLine += "\"";
     cmdLine += exePath;
-    cmdLine += "\" --user-data-dir=\"";
+    cmdLine += "\" --open-url --user-data-dir=\"";
     cmdLine += dataDir;
     cmdLine += "\" --extensions-dir=\"";
     cmdLine += extDir;
-    cmdLine += "\" \"%1\"";
+    cmdLine += "\" -- \"%1\"";
 
     // 3. 写注册表
     HKEY hKey;
@@ -189,7 +194,7 @@ bool registerCustomProtocol(const string& instanceName)
     RegSetValueExA(hKey, "URL Protocol", 0, REG_SZ, (LPBYTE)"", 1);
     RegCloseKey(hKey);
 
-    // shell\open\command
+    // shell/open/command
     protocol += "\\shell\\open\\command";
     RegCreateKeyExA(HKEY_CURRENT_USER, protocol.c_str(), 0, nullptr, 0, KEY_WRITE, nullptr, &hKey, nullptr);
     RegSetValueExA(hKey, "", 0, REG_SZ, (LPBYTE)cmdLine.c_str(), (DWORD)cmdLine.size() + 1);
@@ -199,7 +204,7 @@ bool registerCustomProtocol(const string& instanceName)
 }
 
 /* =========== 协议劫持 / 还原 =========== */
-bool registCodeProtocol(const string& instanceName) {
+bool registVSCodeProtocol(const string& instanceName) {
     char userProfile[MAX_PATH];
     SHGetFolderPathA(nullptr, CSIDL_PROFILE, nullptr, 0, userProfile);
 
@@ -212,27 +217,24 @@ bool registCodeProtocol(const string& instanceName) {
     char extDir[MAX_PATH];
     PathCombineA(extDir, userProfile, (".vsenv\\" + instanceName + "\\extensions").c_str());
 
-    string cmdLine = "\"" + string(exePath) + "\" --user-data-dir=\"" + string(dataDir) +
-        "\" --extensions-dir=\"" + string(extDir) + "\" \"%1\"";
+    // 修复命令行：添加 --open-url 和 --
+    string cmdLine = "\"" + string(exePath) + "\" --open-url --user-data-dir=\"" + string(dataDir) +
+        "\" --extensions-dir=\"" + string(extDir) + "\" -- \"%1\"";
 
     HKEY hKey;
-    string key = "Software\\Classes\\code\\shell\\open\\command";
+    // 修正为 vscode 协议
+    string key = "Software\\Classes\\vscode\\shell\\open\\command";
     if (RegCreateKeyExA(HKEY_CURRENT_USER, key.c_str(), 0, nullptr, 0, KEY_WRITE, nullptr, &hKey, nullptr) != ERROR_SUCCESS)
         return false;
     RegSetValueExA(hKey, "", 0, REG_SZ, (LPBYTE)cmdLine.c_str(), (DWORD)cmdLine.size() + 1);
     RegCloseKey(hKey);
 
-    // 建 protocol 键，防止系统不认
-    key = "Software\\Classes\\code";
+    // 建 protocol 键
+    key = "Software\\Classes\\vscode";
     if (RegCreateKeyExA(HKEY_CURRENT_USER, key.c_str(), 0, nullptr, 0, KEY_WRITE, nullptr, &hKey, nullptr) != ERROR_SUCCESS)
         return false;
     RegSetValueExA(hKey, "URL Protocol", 0, REG_SZ, (LPBYTE)"", 1);
     RegCloseKey(hKey);
-    return true;
-}
-
-bool logoffCodeProtocol() {
-    SHDeleteKeyA(HKEY_CURRENT_USER, "Software\\Classes\\code");
     return true;
 }
 
@@ -256,7 +258,7 @@ void printBanner() {
     cout << "==================================\n";
     cout << "  追随马斯克的步伐，坚持免费开源\n";
     cout << "==================================\n\n";
-	cout << "Beta " << VSENV_VERSION << " by " << VSENV_AUTHOR << " (" << VSENV_LICENSE << ")\n\n";
+    cout << "Beta " << VSENV_VERSION << " by " << VSENV_AUTHOR << " (" << VSENV_LICENSE << ")\n\n";
 }
 
 /* =========== 隔离方案实现 =========== */
@@ -603,8 +605,8 @@ void stop(const string& name, const L10N& L, char* argv0) {
 void remove(const string& name, const L10N& L, char* argv0) {
     stop(name, L, argv0);
 
-    // 1. 如果当前劫持的是本实例，先还原 code://
-    restoreOriginalCodeHandler();
+    // 1. 如果当前劫持的是本实例，先还原 vscode://
+    restoreOriginalVSCodeHandler();
 
     // 2. 删除实例私有协议
     SHDeleteKeyA(HKEY_CURRENT_USER, ("Software\\Classes\\vsenv-" + name).c_str());
@@ -644,9 +646,9 @@ int main(int argc, char** argv) {
             "  vsenv start  <instance> [--lang cn] [--host] [--mac] [--proxy <url>] [--sandbox|--appcontainer|--wsb] [--augment]\n"
             "  vsenv stop   <instance> [--lang cn]\n"
             "  vsenv remove <instance> [--lang cn]\n"
-            "  vsenv regist  <instance>        # redirect code:// to this instance\n"
-            "  vsenv logoff                    # restore original code:// handler\n"
-            "  vsenv rest <path>               # 手动重建 code:// 协议 (支持拖拽带双引号的路径)\n"
+            "  vsenv regist  <instance>        # redirect vscode:// to this instance\n"
+            "  vsenv logoff                    # restore original vscode:// handler\n"
+            "  vsenv rest <path>               # 手动重建 vscode:// 协议 (支持拖拽带双引号的路径)\n"
             "\n"
             "Global options:\n"
             "  --lang <en|cn>   Set display language. Default is \"en\".\n"
@@ -701,7 +703,7 @@ int main(int argc, char** argv) {
 
         // 恢复协议
         if (restoreCodeProtocol(path)) {
-            cout << "✅ code:// 协议已成功恢复至: " << path << "\n";
+            cout << "✅ vscode:// 协议已成功恢复至: " << path << "\n";
         }
         else {
             cerr << "恢复失败，请检查路径和权限\n";
@@ -729,8 +731,8 @@ int main(int argc, char** argv) {
         remove(name, lang, argv[0]);
     }
     else if (cmd == "regist") {
-        backupOriginalCodeHandler();   // 先备份
-        if (registCodeProtocol(name)) {
+        backupOriginalVSCodeHandler();   // 先备份
+        if (registVSCodeProtocol(name)) {
             printf(lang.registOK.c_str(), name.c_str());
         }
         else {
@@ -738,11 +740,11 @@ int main(int argc, char** argv) {
         }
     }
     else if (cmd == "logoff") {
-        if (restoreOriginalCodeHandler()) {
+        if (restoreOriginalVSCodeHandler()) {
             cout << lang.logoffOK << "\n";
         }
         else {
-            cerr << "恢复 code:// 失败\n";
+            cerr << "恢复 vscode:// 失败\n";
         }
     }
     else {
