@@ -1,4 +1,21 @@
-﻿#define _WIN32_WINNT 0x0A00  // Windows 10
+﻿/*
+    VSenv --VS Code 离线实例管理器
+    以AGPLv3.0开源 dhjs0000版权所有
+	该程序允许用户创建、启动、停止和删除独立的 VS Code 实例，
+	每个实例拥有独立的用户数据和扩展目录。
+
+    版本：beta 0.1.0
+
+*/
+
+// 常量定义
+
+#define VSENV_VERSION "0.1.0"
+#define VSENV_AUTHOR "dhjs0000"
+#define VSENV_LICENSE "AGPLv3.0"
+
+
+#define _WIN32_WINNT 0x0A00  // Windows 10
 #include <sdkddkver.h>
 #include <windows.h>
 #include <shlobj.h>
@@ -239,6 +256,7 @@ void printBanner() {
     cout << "==================================\n";
     cout << "  追随马斯克的步伐，坚持免费开源\n";
     cout << "==================================\n\n";
+	cout << "Beta " << VSENV_VERSION << " by " << VSENV_AUTHOR << " (" << VSENV_LICENSE << ")\n\n";
 }
 
 /* =========== 隔离方案实现 =========== */
