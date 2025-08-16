@@ -19,4 +19,9 @@
       <Filter>源文件</Filter>
     </ClCompile>
   </ItemGroup>
+  <ItemGroup>
+    <None Include="vsenv-net.ps1">
+      <Filter>资源文件</Filter>
+    </None>
+  </ItemGroup>
 </Project>

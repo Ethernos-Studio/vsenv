@@ -14,16 +14,16 @@ using std::cerr;
 
 /* =========== 语言包 =========== */
 struct L10N {
-    string title = "VSenv - 独立 VS Code 实例管理器";
-    string created = "实例 '%s' 已创建：%s";
-    string copyHint = "请把离线包解压到 %s\\vscode\\";
-    string notFound = "未找到 Code.exe，请检查路径。";
-    string started = "已启动 %s";
-    string stopped = "已停止 %s";
-    string removed = "已删除 %s";
+    string title = "VSenv - Stand-alone VS Code instance manager";
+    string created = "Instance '%s' created at %s";
+    string copyHint = "Please extract the offline package to %s\\vscode\\";
+    string notFound = "Code.exe not found, please check the path.";
+    string started = "Started %s";
+    string stopped = "Stopped %s";
+    string removed = "Removed %s";
 };
 
-static L10N EN;               // 默认英文
+static const L10N EN;              // 默认英文
 static L10N CN = { "VSenv - 独立 VS Code 实例管理器",
                    "实例 '%s' 已创建：%s",
                    "请把离线包解压到 %s\\vscode\\",
@@ -61,12 +61,22 @@ void create(const string& name, const L10N& L) {
     printf(("\n" + L.copyHint).c_str(), dir.c_str());
 }
 
-void start(const string& name, const L10N& L) {
+void start(const string& name, const L10N& L,
+    bool randomHost = false,
+    bool randomMac = false,
+    const string& proxy = "") {
+
     string dir = rootDir(name);
     string exe = dir + "\\vscode\\Code.exe";
-    if (!fileExists(exe)) {
-        cerr << L.notFound << "\n"; return;
-    }
+    if (!fileExists(exe)) { cerr << L.notFound << "\n"; return; }
+
+    // 构造脚本参数
+    string cmd = "powershell -NoLogo -ExecutionPolicy Bypass -File \"vsenv-net.ps1\" " + name;
+    if (randomHost) cmd += " -RandomHost";
+    if (randomMac)  cmd += " -RandomMac";
+    if (!proxy.empty()) cmd += " -Proxy " + proxy;
+    system(cmd.c_str());
+
     string args = "\"" + exe + "\" --user-data-dir=\"" + dir + "\\data\" --extensions-dir=\"" + dir + "\\extensions\"";
     STARTUPINFOA si{ sizeof(si) };
     PROCESS_INFORMATION pi{};
@@ -92,29 +102,38 @@ void remove(const string& name, const L10N& L) {
 }
 
 int main(int argc, char** argv) {
-    printBanner();                               // 彩蛋
-    L10N lang = EN;                              // 默认英文
+    printBanner();
+    L10N lang = EN;
+    bool randomHost = false, randomMac = false;
+    string proxy;
+
     for (int i = 1; i < argc; ++i) {
         if (strcmp(argv[i], "--lang") == 0 && i + 1 < argc) {
             if (strcmp(argv[i + 1], "cn") == 0) lang = CN;
-            ++i;                                 // 跳过参数值
+            ++i;
+        }
+        else if (strcmp(argv[i], "--host") == 0)    randomHost = true;
+        else if (strcmp(argv[i], "--mac") == 0)    randomMac = true;
+        else if (strcmp(argv[i], "--proxy") == 0 && i + 1 < argc) {
+            proxy = argv[++i];
         }
     }
 
     if (argc < 2) {
         cerr << "Usage:\n"
             "  vsenv create <instance> [--lang cn]\n"
-            "  vsenv start  <instance> [--lang cn]\n"
+            "  vsenv start  <instance> [--lang cn] [--host] [--mac] [--proxy <url>]\n"
             "  vsenv stop   <instance> [--lang cn]\n"
             "  vsenv remove <instance> [--lang cn]\n";
         return 1;
     }
+
     string cmd = argv[1], name = argv[2];
     if (cmd == "create") {
         create(name, lang);
     }
     else if (cmd == "start") {
-        start(name, lang);
+        start(name, lang, randomHost, randomMac, proxy);
     }
     else if (cmd == "stop") {
         stop(name, lang);
