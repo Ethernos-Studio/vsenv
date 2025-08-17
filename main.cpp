@@ -4,12 +4,12 @@
     该程序允许用户创建、启动、停止和删除独立的 VS Code 实例，
     每个实例拥有独立的用户数据和扩展目录。
 
-    版本：beta 0.2.0
+    版本：beta 0.3.0
 */
 
 // 常量定义
 
-#define VSENV_VERSION "0.2.0"
+#define VSENV_VERSION "0.3.0"
 #define VSENV_AUTHOR "dhjs0000"
 #define VSENV_LICENSE "AGPLv3.0"
 
