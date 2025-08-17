@@ -66,7 +66,99 @@ static L10N CN = { "VSenv - 独立 VS Code 实例管理器",
 
 /* =========== 工具函数 =========== */
 bool fileExists(const std::string& path);
+// 工具：读取当前注册表值
+static bool readRegValue(const string& keyPath, const string& valueName,
+    char* buf, DWORD bufSize)
+{
+    return RegGetValueA(HKEY_CURRENT_USER,
+        keyPath.c_str(),
+        valueName.empty() ? nullptr : valueName.c_str(),
+        RRF_RT_REG_SZ,
+        nullptr,
+        buf,
+        &bufSize) == ERROR_SUCCESS;
+}
 
+// 工具：写入注册表值
+static bool writeRegValue(const string& keyPath, const string& valueName,
+    const string& data)
+{
+    HKEY hKey;
+    LONG ret = RegCreateKeyExA(HKEY_CURRENT_USER,
+        keyPath.c_str(),
+        0, nullptr, 0, KEY_SET_VALUE,
+        nullptr, &hKey, nullptr);
+    if (ret != ERROR_SUCCESS) return false;
+    ret = RegSetValueExA(hKey,
+        valueName.empty() ? "" : valueName.c_str(),
+        0, REG_SZ,
+        reinterpret_cast<const BYTE*>(data.c_str()),
+        static_cast<DWORD>(data.size() + 1));
+    RegCloseKey(hKey);
+    return ret == ERROR_SUCCESS;
+}
+
+// 生成我们希望的命令行
+static string makeGuardCommand(const string& instanceName)
+{
+    char userProfile[MAX_PATH];
+    SHGetFolderPathA(nullptr, CSIDL_PROFILE, nullptr, 0, userProfile);
+
+    char exePath[MAX_PATH];
+    PathCombineA(exePath, userProfile,
+        (".vsenv\\" + instanceName + "\\vscode\\Code.exe").c_str());
+    char dataDir[MAX_PATH];
+    PathCombineA(dataDir, userProfile,
+        (".vsenv\\" + instanceName + "\\data").c_str());
+    char extDir[MAX_PATH];
+    PathCombineA(extDir, userProfile,
+        (".vsenv\\" + instanceName + "\\extensions").c_str());
+
+    char cmd[4096];
+    snprintf(cmd, sizeof(cmd),
+        "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command \""
+        "$uri='%%1'.Trim('\\\"'); "
+        "$uri=$uri -replace '^vscode://',''; "
+        "if($uri -match '^file/(?<path>.*)'){ "
+        "$p='file:///' + ($matches['path'] -replace '/','/'); "
+        "&\\\"%s\\\" --user-data-dir=\\\"%s\\\" --extensions-dir=\\\"%s\\\" --file-uri \\\"$p\\\"; "
+        "}else{ "
+        "&\\\"%s\\\" --user-data-dir=\\\"%s\\\" --extensions-dir=\\\"%s\\\" --open-url -- $uri; "
+        "}\"",
+        exePath, dataDir, extDir,
+        exePath, dataDir, extDir);
+    return string(cmd);
+}
+
+// 守护循环
+static void guardRegist(const string& instanceName, const L10N& L)
+{
+    const string key = "Software\\Classes\\vscode\\shell\\open\\command";
+    const string ourCmd = makeGuardCommand(instanceName);
+
+    cout << "开始守护 vscode:// 协议，按 Ctrl+C 停止...\n";
+
+    while (true)
+    {
+        char current[4096] = { 0 };
+        DWORD len = sizeof(current);
+        if (!readRegValue(key, "", current, len))
+        {
+            // 读不到就视为被删了
+            cout << "[WARN] 注册表读取失败，尝试重新写入...\n";
+        }
+
+        if (string(current) != ourCmd)
+        {
+            cout << "[INFO] 检测到协议被修改，正在修复...\n";
+            if (writeRegValue(key, "", ourCmd))
+                cout << "[OK] 已修复\n";
+            else
+                cout << "[ERR] 修复失败\n";
+        }
+        Sleep(1000);   // 每 1 秒检查一次
+    }
+}
 
 bool restoreCodeProtocol(const std::string& codePath)
 {
@@ -206,8 +298,8 @@ bool registerCustomProtocol(const string& instanceName)
     return true;
 }
 
-// 添加缺失的函数定义
-bool registVSCodeProtocol(const string& instanceName) {
+bool registVSCodeProtocol(const string& instanceName)
+{
     char userProfile[MAX_PATH];
     SHGetFolderPathA(nullptr, CSIDL_PROFILE, nullptr, 0, userProfile);
 
@@ -220,19 +312,33 @@ bool registVSCodeProtocol(const string& instanceName) {
     char extDir[MAX_PATH];
     PathCombineA(extDir, userProfile, (".vsenv\\" + instanceName + "\\extensions").c_str());
 
-    // 修复命令行：添加 --open-url 和 --
-    string cmdLine = "\"" + string(exePath) + "\" --open-url --user-data-dir=\"" + string(dataDir) +
-        "\" --extensions-dir=\"" + string(extDir) + "\" -- \"%1\"";
+    // 命令模板：直接启动 Code.exe，不再带 --open-url
+    // 用 PowerShell 把 %1 拆成 file-uri 或 folder-uri
+    char cmdLine[4096];
+    snprintf(cmdLine, sizeof(cmdLine),
+        "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command \""
+        "$uri='%%1'.Trim('\\\"'); "
+        // 去掉 scheme
+        "$uri = $uri -replace '^vscode://',''; "
+        // file/ 开头 -> file:/// 本地文件
+        "if($uri -match '^file/(?<path>.*)'){ "
+        "$p='file:///' + ($matches['path'] -replace '/','/'); "
+        "&\\\"%s\\\" --user-data-dir=\\\"%s\\\" --extensions-dir=\\\"%s\\\" --file-uri \\\"$p\\\"; "
+        "} "
+        // 其余（含 augmentserver.io/callback 等）保持原样
+        "else{ "
+        "&\\\"%s\\\" --user-data-dir=\\\"%s\\\" --extensions-dir=\\\"%s\\\" --open-url -- $uri; "
+        "}\"",
+        exePath, dataDir, extDir,
+        exePath, dataDir, extDir);
 
     HKEY hKey;
-    // 修正为 vscode 协议
     string key = "Software\\Classes\\vscode\\shell\\open\\command";
     if (RegCreateKeyExA(HKEY_CURRENT_USER, key.c_str(), 0, nullptr, 0, KEY_WRITE, nullptr, &hKey, nullptr) != ERROR_SUCCESS)
         return false;
-    RegSetValueExA(hKey, "", 0, REG_SZ, (LPBYTE)cmdLine.c_str(), (DWORD)cmdLine.size() + 1);
+    RegSetValueExA(hKey, "", 0, REG_SZ, (LPBYTE)cmdLine, (DWORD)strlen(cmdLine) + 1);
     RegCloseKey(hKey);
 
-    // 建 protocol 键
     key = "Software\\Classes\\vscode";
     if (RegCreateKeyExA(HKEY_CURRENT_USER, key.c_str(), 0, nullptr, 0, KEY_WRITE, nullptr, &hKey, nullptr) != ERROR_SUCCESS)
         return false;
@@ -683,35 +789,32 @@ int main(int argc, char** argv) {
     }
 
     if (argc < 2) {
-        cerr << "Usage:\n"
-            "  vsenv create <instance> [--lang cn]\n"
-            "  vsenv start  <instance> [--lang cn] [--host] [--mac] [--proxy <url>] [--sandbox|--appcontainer|--wsb] [--fake-hw]\n"
-            "  vsenv stop   <instance> [--lang cn]\n"
-            "  vsenv remove <instance> [--lang cn]\n"
-            "  vsenv regist  <instance>        # redirect vscode:// to this instance\n"
-            "  vsenv logoff                    # restore original vscode:// handler\n"
-            "  vsenv rest <path>               # 手动重建 vscode:// 协议 (支持拖拽带双引号的路径)\n"
+        cerr << "用法：\n"
+            "  vsenv create <实例名> [--lang cn]\n"
+            "  vsenv start  <实例名> [--lang cn] [--host] [--mac] [--proxy <url>] [--sandbox|--appcontainer|--wsb] [--fake-hw]\n"
+            "  vsenv stop   <实例名> [--lang cn]\n"
+            "  vsenv remove <实例名> [--lang cn]\n"
+            "  vsenv regist <实例名>        # 将 vscode:// 协议重定向到此实例\n"
+			"  vsenv regist-guard <实例名>  # 守护 vscode:// 协议不被篡改（需管理员权限）\n"
+            "  vsenv logoff                 # 恢复默认的 vscode:// 协议处理程序\n"
+            "  vsenv rest <路径>            # 手动重建 vscode:// 协议（支持拖拽带双引号的路径）\n"
             "\n"
-            "Global options:\n"
-            "  --lang <en|cn>   Set display language. Default is \"en\".\n"
+            "全局选项：\n"
+            "  --lang <en|cn>   设置界面语言，默认为 \"en\"。\n"
             "\n"
-            "vsenv start options:\n"
-            "  --host              Randomise the hostname inside the current Windows session\n"
-            "                      (requires elevation). Useful to hide the real computer name.\n"
-            "  --mac               Generate a random MAC address and create a temporary\n"
-            "                      virtual NIC named VSenv-<instance> (requires elevation).\n"
-            "  --proxy <url>       Force WinHTTP traffic through the given HTTP(S) proxy.\n"
-            "                      Example: --proxy http://127.0.0.1:8080\n"
-            "  --sandbox           Launch VS Code in a restricted Logon-Session sandbox\n"
-            "                      (legacy method, low isolation).\n"
-            "  --appcontainer(WIP) Launch VS Code inside an AppContainer\n"
-            "                      (medium isolation, Win32k lockdown, no admin rights).\n"
-            "  --wsb(WIP)          Launch VS Code inside Windows Sandbox (full virtual OS,\n"
-            "                      best isolation, requires Windows Pro/Enterprise).\n"
-            "  --fake-hw           Randomize hardware fingerprints (CPUID, Disk Serial, MAC)\n"
-            "                      for enhanced privacy and isolation.\n"
+            "vsenv start 选项：\n"
+            "  --host              在当前 Windows 会话内随机化主机名（需管理员权限）。\n"
+            "                      可用于隐藏真实计算机名。\n"
+            "  --mac               生成随机 MAC 地址，并创建名为 VSenv-<实例名> 的临时虚拟网卡（需管理员权限）。\n"
+            "  --proxy <url>       强制所有 WinHTTP 流量通过指定的 HTTP(S) 代理。\n"
+            "                      示例：--proxy http://127.0.0.1:8080\n"
+            "  --sandbox           在受限的 Logon-Session 沙箱内启动 VS Code。\n"
+            "  --appcontainer(实验) 在 AppContainer 内启动 VS Code（中等隔离程度，Win32k 锁定，无管理员权限）。\n"
+            "  --wsb(实验)          在 Windows Sandbox 内启动 VS Code（完整虚拟操作系统，\n"
+            "                      隔离程度最高，需 Windows Pro/Enterprise）。\n"
+            "  --fake-hw           随机化硬件指纹（CPUID、磁盘序列号、MAC）以增强隐私和隔离。\n"
             "\n"
-            "Examples:\n"
+            "示例：\n"
             "  vsenv create work --lang cn\n"
             "  vsenv start work --appcontainer --fake-hw\n"
             "  vsenv start work --host --mac --proxy http://proxy.internal:3128 --wsb\n";
@@ -787,6 +890,9 @@ int main(int argc, char** argv) {
         else {
             cerr << "恢复 vscode:// 失败\n";
         }
+    }
+    else if (cmd == "regist-guard") {   // 新增
+        guardRegist(name, lang);
     }
     else {
         cerr << "无效命令 '" << cmd << "'";
