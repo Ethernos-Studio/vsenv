@@ -410,7 +410,7 @@ void printBanner() {
     cout << "  追随马斯克的步伐，坚持免费开源\n";
     cout << "==================================\n\n";
     cout << " VSenv " << "Beta " << VSENV_VERSION << " by " << VSENV_AUTHOR << " (" << VSENV_LICENSE << ")\n\n";
-    cout << "VSenv 2025©Copyright dhjs0000。\n\n";
+    cout << " VSenv 2025 Copyright dhjs0000。\n\n";
 }
 
 /* =========== 隔离方案实现 =========== */
@@ -853,6 +853,7 @@ int main(int argc, char** argv) {
             "  --wsb(实验)          在 Windows Sandbox 内启动 VS Code（完整虚拟操作系统，\n"
             "                      隔离程度最高，需 Windows Pro/Enterprise）。\n"
             "  --fake-hw           随机化硬件指纹（CPUID、磁盘序列号、MAC）以增强隐私和隔离。\n"
+            "\n"
 			"vsenv extension介绍：\n"
 			"  若<扩展ID>为空，则默认安装中文语言包（MS-CEINTL.vscode-language-pack-zh-hans）。\n"
             "  查找扩展的扩展ID：\n"
