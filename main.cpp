@@ -4,12 +4,12 @@
     该程序允许用户创建、启动、停止和删除独立的 VS Code 实例，
     每个实例拥有独立的用户数据和扩展目录。
 
-    版本：beta 0.4.0
+    版本：beta 0.4.1
 */
 
 // 常量定义
 
-#define VSENV_VERSION "0.4.0"
+#define VSENV_VERSION "0.4.1"
 #define VSENV_AUTHOR "dhjs0000"
 #define VSENV_LICENSE "AGPLv3.0"
 
@@ -402,7 +402,8 @@ void printBanner() {
     cout << "==================================\n";
     cout << "  追随马斯克的步伐，坚持免费开源\n";
     cout << "==================================\n\n";
-    cout << "Beta " << VSENV_VERSION << " by " << VSENV_AUTHOR << " (" << VSENV_LICENSE << ")\n\n";
+    cout << " VSenv " << "Beta " << VSENV_VERSION << " by " << VSENV_AUTHOR << " (" << VSENV_LICENSE << ")\n\n";
+    cout << "这是最严格的许可证，不允许任何修改闭源。";
 }
 
 /* =========== 隔离方案实现 =========== */
@@ -662,12 +663,18 @@ void startWithNetworkIsolation(const string& name, const L10N& L, bool randomHos
 
 /* =========== 业务逻辑 =========== */
 void create(const string& name, const L10N& L) {
+
+	if (_mkdir(".vsenv") == -1 && errno != EEXIST) {
+		cerr << "Failed to create .vsenv directory\n";
+		return;
+	}
+
     string dir = rootDir(name);
 
     if (_mkdir(dir.c_str()) == -1 && errno != EEXIST) {
         cerr << "Failed to create directory: " << dir << "\n";
         return;
-    }
+    } 
 
     string dataDir = dir + "\\data";
     if (_mkdir(dataDir.c_str()) == -1 && errno != EEXIST) {
