@@ -4,12 +4,12 @@
     该程序允许用户创建、启动、停止和删除独立的 VS Code 实例，
     每个实例拥有独立的用户数据和扩展目录。
 
-    版本：beta 0.4.1
+    版本：beta 0.4.2
 */
 
 // 常量定义
 
-#define VSENV_VERSION "0.4.1"
+#define VSENV_VERSION "0.4.2"
 #define VSENV_AUTHOR "dhjs0000"
 #define VSENV_LICENSE "AGPLv3.0"
 
@@ -116,16 +116,7 @@ static string makeGuardCommand(const string& instanceName)
 
     char cmd[4096];
     snprintf(cmd, sizeof(cmd),
-        "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command \""
-        "$uri='%%1'.Trim('\\\"'); "
-        "$uri=$uri -replace '^vscode://',''; "
-        "if($uri -match '^file/(?<path>.*)'){ "
-        "$p='file:///' + ($matches['path'] -replace '/','/'); "
-        "&\\\"%s\\\" --user-data-dir=\\\"%s\\\" --extensions-dir=\\\"%s\\\" --file-uri \\\"$p\\\"; "
-        "}else{ "
-        "&\\\"%s\\\" --user-data-dir=\\\"%s\\\" --extensions-dir=\\\"%s\\\" --open-url -- $uri; "
-        "}\"",
-        exePath, dataDir, extDir,
+        "\"%s\" --user-data-dir=\"%s\" --extensions-dir=\"%s\" --open-url -- %%1",
         exePath, dataDir, extDir);
     return string(cmd);
 }
@@ -298,52 +289,53 @@ bool registerCustomProtocol(const string& instanceName)
     return true;
 }
 
-bool registVSCodeProtocol(const string& instanceName)
+bool registVSCodeProtocol(const std::string& instanceName)
 {
     char userProfile[MAX_PATH];
     SHGetFolderPathA(nullptr, CSIDL_PROFILE, nullptr, 0, userProfile);
 
     char exePath[MAX_PATH];
-    PathCombineA(exePath, userProfile, (".vsenv\\" + instanceName + "\\vscode\\Code.exe").c_str());
-    if (!fileExists(exePath)) return false;
+    PathCombineA(exePath, userProfile,
+        (".vsenv\\" + instanceName + "\\vscode\\Code.exe").c_str());
+    if (!fileExists(exePath))
+        return false;
 
     char dataDir[MAX_PATH];
-    PathCombineA(dataDir, userProfile, (".vsenv\\" + instanceName + "\\data").c_str());
-    char extDir[MAX_PATH];
-    PathCombineA(extDir, userProfile, (".vsenv\\" + instanceName + "\\extensions").c_str());
+    PathCombineA(dataDir, userProfile,
+        (".vsenv\\" + instanceName + "\\data").c_str());
 
-    // 命令模板：直接启动 Code.exe，不再带 --open-url
-    // 用 PowerShell 把 %1 拆成 file-uri 或 folder-uri
+    char extDir[MAX_PATH];
+    PathCombineA(extDir, userProfile,
+        (".vsenv\\" + instanceName + "\\extensions").c_str());
+
+    // 直接注册一条最简单的命令行
     char cmdLine[4096];
     snprintf(cmdLine, sizeof(cmdLine),
-        "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command \""
-        "$uri='%%1'.Trim('\\\"'); "
-        // 去掉 scheme
-        "$uri = $uri -replace '^vscode://',''; "
-        // file/ 开头 -> file:/// 本地文件
-        "if($uri -match '^file/(?<path>.*)'){ "
-        "$p='file:///' + ($matches['path'] -replace '/','/'); "
-        "&\\\"%s\\\" --user-data-dir=\\\"%s\\\" --extensions-dir=\\\"%s\\\" --file-uri \\\"$p\\\"; "
-        "} "
-        // 其余（含 augmentserver.io/callback 等）保持原样
-        "else{ "
-        "&\\\"%s\\\" --user-data-dir=\\\"%s\\\" --extensions-dir=\\\"%s\\\" --open-url -- $uri; "
-        "}\"",
-        exePath, dataDir, extDir,
+        "\"%s\" --user-data-dir=\"%s\" --extensions-dir=\"%s\" --open-url -- %%1",
         exePath, dataDir, extDir);
 
+    // 写入 HKEY_CURRENT_USER\Software\Classes\vscode\shell\open\command
     HKEY hKey;
-    string key = "Software\\Classes\\vscode\\shell\\open\\command";
-    if (RegCreateKeyExA(HKEY_CURRENT_USER, key.c_str(), 0, nullptr, 0, KEY_WRITE, nullptr, &hKey, nullptr) != ERROR_SUCCESS)
+    std::string key = "Software\\Classes\\vscode\\shell\\open\\command";
+    if (RegCreateKeyExA(HKEY_CURRENT_USER, key.c_str(), 0, nullptr, 0,
+        KEY_WRITE, nullptr, &hKey, nullptr) != ERROR_SUCCESS)
         return false;
-    RegSetValueExA(hKey, "", 0, REG_SZ, (LPBYTE)cmdLine, (DWORD)strlen(cmdLine) + 1);
+
+    RegSetValueExA(hKey, "", 0, REG_SZ,
+        reinterpret_cast<const BYTE*>(cmdLine),
+        static_cast<DWORD>(strlen(cmdLine) + 1));
     RegCloseKey(hKey);
 
+    // 写入 URL Protocol 空值
     key = "Software\\Classes\\vscode";
-    if (RegCreateKeyExA(HKEY_CURRENT_USER, key.c_str(), 0, nullptr, 0, KEY_WRITE, nullptr, &hKey, nullptr) != ERROR_SUCCESS)
+    if (RegCreateKeyExA(HKEY_CURRENT_USER, key.c_str(), 0, nullptr, 0,
+        KEY_WRITE, nullptr, &hKey, nullptr) != ERROR_SUCCESS)
         return false;
-    RegSetValueExA(hKey, "URL Protocol", 0, REG_SZ, (LPBYTE)"", 1);
+
+    RegSetValueExA(hKey, "URL Protocol", 0, REG_SZ,
+        reinterpret_cast<const BYTE*>(""), 1);
     RegCloseKey(hKey);
+
     return true;
 }
 
@@ -403,7 +395,7 @@ void printBanner() {
     cout << "  追随马斯克的步伐，坚持免费开源\n";
     cout << "==================================\n\n";
     cout << " VSenv " << "Beta " << VSENV_VERSION << " by " << VSENV_AUTHOR << " (" << VSENV_LICENSE << ")\n\n";
-    cout << "这是最严格的许可证，不允许任何修改闭源。";
+    cout << "这是最严格的许可证，不允许任何修改闭源。\n\n";
 }
 
 /* =========== 隔离方案实现 =========== */
