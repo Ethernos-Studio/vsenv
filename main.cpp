@@ -4,12 +4,12 @@
     该程序允许用户创建、启动、停止和删除独立的 VS Code 实例，
     每个实例拥有独立的用户数据和扩展目录。
 
-    版本：beta 0.4.2
+    版本：beta 0.4.3
 */
 
 // 常量定义
 
-#define VSENV_VERSION "0.4.2"
+#define VSENV_VERSION "0.4.3"
 #define VSENV_AUTHOR "dhjs0000"
 #define VSENV_LICENSE "AGPLv3.0"
 
@@ -49,6 +49,10 @@ struct L10N {
     string logoffOK = "vscode:// restored to original VS Code";
     string restHint = "Cannot redirect to VS Code? Use --rest to restore/rebuild vscode:// protocol";
     string fakeHW = "Hardware fingerprints randomized: CPUID=%s, DiskSN=%s, MAC=%s";
+    string extNotFound = "VS Code CLI not found, cannot install extension.";
+    string extOK = "Extension '%s' installed.";
+    string checkingCN = "Checking Chinese language pack...";
+    string alreadyCN = "Chinese language pack already installed.";
 };
 
 static const L10N EN; // 默认英文
@@ -62,10 +66,21 @@ static L10N CN = { "VSenv - 独立 VS Code 实例管理器",
                    "vscode:// 现在会跳转到实例'%s'",
                    "vscode:// 现在会跳转到原来的VSCode",
                    "无法跳转至 VS Code？使用 --rest 以恢复/重建 vscode:// 协议",
-                   "硬件指纹已随机化: CPUID=%s, 磁盘序列号=%s, MAC地址=%s" };
+                   "硬件指纹已随机化: CPUID=%s, 磁盘序列号=%s, MAC地址=%s" 
+			       "VS Code CLI 未找到，无法安装扩展。",
+	               "扩展 '%s' 已安装。"
+	               "正在检查中文语言包...",
+				   "中文语言包已安装。"
+};
 
 /* =========== 工具函数 =========== */
 bool fileExists(const std::string& path);
+string rootDir(const string& name);
+
+
+string vsCodeCliPath(const string& name) {
+    return rootDir(name) + "\\vscode\\bin\\code.cmd";
+}
 // 工具：读取当前注册表值
 static bool readRegValue(const string& keyPath, const string& valueName,
     char* buf, DWORD bufSize)
@@ -395,7 +410,7 @@ void printBanner() {
     cout << "  追随马斯克的步伐，坚持免费开源\n";
     cout << "==================================\n\n";
     cout << " VSenv " << "Beta " << VSENV_VERSION << " by " << VSENV_AUTHOR << " (" << VSENV_LICENSE << ")\n\n";
-    cout << "这是最严格的许可证，不允许任何修改闭源。\n\n";
+    cout << "VSenv 2025©Copyright dhjs0000。\n\n";
 }
 
 /* =========== 隔离方案实现 =========== */
@@ -763,6 +778,31 @@ void remove(const string& name, const L10N& L, char* argv0) {
     printf(L.removed.c_str(), name.c_str());
 }
 
+void installExtension(const string& name, const string& extId, const L10N& L) {
+    string cli = vsCodeCliPath(name);
+    if (!fileExists(cli)) {
+        cerr << L.extNotFound << "\n";
+        return;
+    }
+
+    string args = "\"" + cli + "\" --install-extension \"" + extId + "\" "
+        "--user-data-dir=\"" + rootDir(name) + "\\data\" "
+        "--extensions-dir=\"" + rootDir(name) + "\\extensions\"";
+
+    STARTUPINFOA si{ sizeof(si) };
+    PROCESS_INFORMATION pi{};
+    if (CreateProcessA(nullptr, const_cast<char*>(args.c_str()),
+        nullptr, nullptr, FALSE, 0, nullptr, nullptr, &si, &pi)) {
+        WaitForSingleObject(pi.hProcess, INFINITE);
+        CloseHandle(pi.hThread);
+        CloseHandle(pi.hProcess);
+        printf(L.extOK.c_str(), extId.c_str());
+    }
+    else {
+        cerr << "Install failed, code: " << GetLastError() << "\n";
+    }
+}
+
 /* =========== 入口 =========== */
 int main(int argc, char** argv) {
     printBanner();
@@ -797,6 +837,7 @@ int main(int argc, char** argv) {
 			"  vsenv regist-guard <实例名>  # 守护 vscode:// 协议不被篡改（需管理员权限）\n"
             "  vsenv logoff                 # 恢复默认的 vscode:// 协议处理程序\n"
             "  vsenv rest <路径>            # 手动重建 vscode:// 协议（支持拖拽带双引号的路径）\n"
+			"  vsenv extension <实例名> <扩展ID> [--lang cn]\n"
             "\n"
             "全局选项：\n"
             "  --lang <en|cn>   设置界面语言，默认为 \"en\"。\n"
@@ -812,11 +853,18 @@ int main(int argc, char** argv) {
             "  --wsb(实验)          在 Windows Sandbox 内启动 VS Code（完整虚拟操作系统，\n"
             "                      隔离程度最高，需 Windows Pro/Enterprise）。\n"
             "  --fake-hw           随机化硬件指纹（CPUID、磁盘序列号、MAC）以增强隐私和隔离。\n"
+			"vsenv extension介绍：\n"
+			"  若<扩展ID>为空，则默认安装中文语言包（MS-CEINTL.vscode-language-pack-zh-hans）。\n"
+            "  查找扩展的扩展ID：\n"
+            "    打开 https://marketplace.visualstudio.com → 搜想要的扩展 → 地址栏或页面右侧的 “Unique Identifier” 就是。\n"
+            "    例如：\n"
+            "      https ://marketplace.visualstudio.com/items?itemName=ms-python.python \n"
+            "      扩展 ID = ms - python.python\n"
             "\n"
-            "示例：\n"
-            "  vsenv create work --lang cn\n"
-            "  vsenv start work --appcontainer --fake-hw\n"
-            "  vsenv start work --host --mac --proxy http://proxy.internal:3128 --wsb\n";
+            "指令示例：\n"
+            "  vsenv create work --lang cn # 创建名为work的环境\n"
+            "  vsenv start work --appcontainer --fake-hw # 以AppContainer运行work环境并启用硬件指纹混淆\n"
+            "  vsenv start work --host --mac --proxy http://proxy.internal:3128 --wsb # 以Windows SandBox运行work环境并开启网络混淆和代理\n";
         return 1;
     }
 
@@ -892,6 +940,11 @@ int main(int argc, char** argv) {
     }
     else if (cmd == "regist-guard") {   // 新增
         guardRegist(name, lang);
+    }
+    else if (cmd == "extension") {
+        string extId = (argc >= 4) ? argv[3]
+            : "MS-CEINTL.vscode-language-pack-zh-hans";
+        installExtension(name, extId, lang);
     }
     else {
         cerr << "无效命令 '" << cmd << "'";
