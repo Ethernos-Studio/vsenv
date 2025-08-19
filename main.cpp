@@ -4,17 +4,18 @@
     该程序允许用户创建、启动、停止和删除独立的 VS Code 实例，
     每个实例拥有独立的用户数据和扩展目录。
 
-    版本：beta 0.4.3
+    版本：beta 0.5.0
 */
 
 // 常量定义
 
-#define VSENV_VERSION "0.4.3"
+#define VSENV_VERSION "0.5.0"
 #define VSENV_AUTHOR "dhjs0000"
 #define VSENV_LICENSE "AGPLv3.0"
 
 
 #define _WIN32_WINNT 0x0A00  // Windows 10
+
 #include <sdkddkver.h>
 #include <windows.h>
 #include <shlobj.h>
@@ -27,6 +28,15 @@
 #include <shlwapi.h>   // 为了 PathAppendA
 #include <random>      // 添加随机数生成
 #include <iomanip>     // 添加流格式化
+
+#include <sstream>
+#include <unordered_map>
+#include <fstream>
+
+static std::unordered_map<std::string, std::string> g_otherPath;
+
+static void loadOtherPath();
+static void saveOtherPathEntry(const std::string& name, const std::string& real);
 
 #pragma comment(lib, "shlwapi.lib")
 #pragma comment(lib, "shell32.lib")
@@ -76,7 +86,8 @@ static L10N CN = { "VSenv - 独立 VS Code 实例管理器",
 /* =========== 工具函数 =========== */
 bool fileExists(const std::string& path);
 string rootDir(const string& name);
-
+string homeDir();
+void create(const string& name, const string& customPath, const L10N& L);
 
 string vsCodeCliPath(const string& name) {
     return rootDir(name) + "\\vscode\\bin\\code.cmd";
@@ -193,7 +204,19 @@ string homeDir() {
     SHGetFolderPathA(nullptr, CSIDL_PROFILE, nullptr, 0, buf);
     return buf;
 }
-string rootDir(const string& name) { return homeDir() + "\\.vsenv\\" + name; }
+
+string rootDir(const string& name)
+{
+    string def = homeDir() + "\\.vsenv\\" + name;
+    if (fileExists(def)) return def;
+
+    loadOtherPath();
+    auto it = g_otherPath.find(name);
+    if (it != g_otherPath.end() && fileExists(it->second))
+        return it->second;
+
+    return def; // 实在没有就返回默认，留给调用者报错
+}
 
 bool fileExists(const string& path) {
     return GetFileAttributesA(path.c_str()) != INVALID_FILE_ATTRIBUTES;
@@ -402,6 +425,30 @@ void applyFakeHardwareProfile(const string& instanceName, const FakeHardwareID& 
         (const BYTE*)fakeID.macAddress.c_str(), fakeID.macAddress.size() + 1);
 
     RegCloseKey(hKey);
+}
+
+static void loadOtherPath()
+{
+    g_otherPath.clear();
+    std::ifstream f(homeDir() + "\\.vsenv\\otherPath.json");
+    if (!f) return;
+    std::string line;
+    while (std::getline(f, line))
+    {
+        auto pos = line.find('\t');
+        if (pos == std::string::npos) continue;
+        g_otherPath[line.substr(0, pos)] = line.substr(pos + 1);
+    }
+}
+
+static void saveOtherPathEntry(const std::string& name, const std::string& real)
+{
+    loadOtherPath(); // 先读，防止覆盖已有条目
+    g_otherPath[name] = real;
+    _mkdir((homeDir() + "\\.vsenv").c_str());
+    std::ofstream f(homeDir() + "\\.vsenv\\otherPath.json", std::ios::trunc);
+    for (const auto& kv : g_otherPath)
+        f << kv.first << '\t' << kv.second << '\n';
 }
 
 /* =========== 彩蛋 =========== */
@@ -669,35 +716,36 @@ void startWithNetworkIsolation(const string& name, const L10N& L, bool randomHos
 }
 
 /* =========== 业务逻辑 =========== */
-void create(const string& name, const L10N& L) {
 
-	if (_mkdir(".vsenv") == -1 && errno != EEXIST) {
-		cerr << "Failed to create .vsenv directory\n";
-		return;
-	}
 
-    string dir = rootDir(name);
+// 实现（放在文件后面即可）
+void create(const string& name, const string& customPath, const L10N& L)
+{
+    string dir;
+    if (!customPath.empty())
+    {
+        dir = customPath;
+        // 去掉首尾双引号（用户拖拽路径时常带）
+        if (dir.size() >= 2 && dir.front() == '"' && dir.back() == '"')
+            dir = dir.substr(1, dir.size() - 2);
+        saveOtherPathEntry(name, dir);
+    }
+    else
+    {
+        dir = rootDir(name);
+    }
 
-    if (_mkdir(dir.c_str()) == -1 && errno != EEXIST) {
+    if (_mkdir(dir.c_str()) == -1 && errno != EEXIST)
+    {
         cerr << "Failed to create directory: " << dir << "\n";
         return;
-    } 
-
-    string dataDir = dir + "\\data";
-    if (_mkdir(dataDir.c_str()) == -1 && errno != EEXIST) {
-        cerr << "Failed to create directory: " << dataDir << "\n";
-        return;
     }
 
-    string extDir = dir + "\\extensions";
-    if (_mkdir(extDir.c_str()) == -1 && errno != EEXIST) {
-        cerr << "Failed to create directory: " << extDir << "\n";
-        return;
-    }
+    _mkdir((dir + "\\data").c_str());
+    _mkdir((dir + "\\extensions").c_str());
 
-    if (!registerCustomProtocol(name)) {
+    if (!registerCustomProtocol(name))
         cerr << "Failed to register custom protocol\n";
-    }
 
     printf(L.created.c_str(), name.c_str(), dir.c_str());
     printf(("\n" + L.copyHint).c_str(), dir.c_str());
@@ -829,13 +877,13 @@ int main(int argc, char** argv) {
 
     if (argc < 2) {
         cerr << "用法：\n"
-            "  vsenv create <实例名> [--lang cn]\n"
+            "  vsenv create <实例名> [路径] [--lang cn]\n"
             "  vsenv start  <实例名> [--lang cn] [--host] [--mac] [--proxy <url>] [--sandbox|--appcontainer|--wsb] [--fake-hw]\n"
             "  vsenv stop   <实例名> [--lang cn]\n"
             "  vsenv remove <实例名> [--lang cn]\n"
             "  vsenv regist <实例名>        # 将 vscode:// 协议重定向到此实例\n"
 			"  vsenv regist-guard <实例名>  # 守护 vscode:// 协议不被篡改（需管理员权限）\n"
-            "  vsenv logoff                 # 恢复默认的 vscode:// 协议处理程序\n"
+            "  vsenv logoff                # 恢复默认的 vscode:// 协议处理程序\n"
             "  vsenv rest <路径>            # 手动重建 vscode:// 协议（支持拖拽带双引号的路径）\n"
 			"  vsenv extension <实例名> <扩展ID> [--lang cn]\n"
             "\n"
@@ -859,7 +907,7 @@ int main(int argc, char** argv) {
             "  查找扩展的扩展ID：\n"
             "    打开 https://marketplace.visualstudio.com → 搜想要的扩展 → 地址栏或页面右侧的 “Unique Identifier” 就是。\n"
             "    例如：\n"
-            "      https ://marketplace.visualstudio.com/items?itemName=ms-python.python \n"
+            "      https://marketplace.visualstudio.com/items?itemName=ms-python.python \n"
             "      扩展 ID = ms - python.python\n"
             "\n"
             "指令示例：\n"
@@ -910,8 +958,12 @@ int main(int argc, char** argv) {
     }
 
     string name = argv[2];
-    if (cmd == "create") {
-        create(name, lang);
+    if (cmd == "create")
+    {
+        string custom;
+        if (argc >= 4 && argv[3][0] != '-')   // 不是开关就是路径
+            custom = argv[3];
+        create(name, custom, lang);
     }
     else if (cmd == "start") {
         start(name, lang, randomHost, randomMac, proxy, useSandbox, useAppContainer, useWSB, fakeHW);
