@@ -4,12 +4,12 @@
     该程序允许用户创建、启动、停止和删除独立的 VS Code 实例，
     每个实例拥有独立的用户数据和扩展目录。
 
-    版本：beta 0.5.0
+    版本：beta 0.6.0
 */
 
-// 常量定义
+// 常量定义喵
 
-#define VSENV_VERSION "0.5.0"
+#define VSENV_VERSION "0.6.0"
 #define VSENV_AUTHOR "dhjs0000"
 #define VSENV_LICENSE "AGPLv3.0"
 
@@ -23,11 +23,11 @@
 #include <iostream>
 #include <string>
 #include <userenv.h>
-#include <errno.h>  // 添加errno头文件
+#include <errno.h>  // 添加errno头文件喵
 #include <fstream>
-#include <shlwapi.h>   // 为了 PathAppendA
-#include <random>      // 添加随机数生成
-#include <iomanip>     // 添加流格式化
+#include <shlwapi.h>   // 为了 PathAppendA喵
+#include <random>      // 添加随机数生成喵
+#include <iomanip>     // 添加流格式化喵
 
 #include <sstream>
 #include <unordered_map>
@@ -46,7 +46,7 @@ using std::string;
 using std::cout;
 using std::cerr;
 
-/* =========== 语言包 =========== */
+/* =========== 语言包喵 =========== */
 struct L10N {
     string title = "VSenv - Stand-alone VS Code instance manager";
     string created = "Instance '%s' created at %s";
@@ -65,7 +65,7 @@ struct L10N {
     string alreadyCN = "Chinese language pack already installed.";
 };
 
-static const L10N EN; // 默认英文
+static const L10N EN; // 默认英文喵
 static L10N CN = { "VSenv - 独立 VS Code 实例管理器",
                    "实例 '%s' 已创建：%s",
                    "请把离线包解压到 %s\\vscode\\",
@@ -83,7 +83,7 @@ static L10N CN = { "VSenv - 独立 VS Code 实例管理器",
 				   "中文语言包已安装。"
 };
 
-/* =========== 工具函数 =========== */
+/* =========== 工具函数喵 =========== */
 bool fileExists(const std::string& path);
 string rootDir(const string& name);
 string homeDir();
@@ -92,7 +92,7 @@ void create(const string& name, const string& customPath, const L10N& L);
 string vsCodeCliPath(const string& name) {
     return rootDir(name) + "\\vscode\\bin\\code.cmd";
 }
-// 工具：读取当前注册表值
+// 工具：读取当前注册表值喵
 static bool readRegValue(const string& keyPath, const string& valueName,
     char* buf, DWORD bufSize)
 {
@@ -105,7 +105,7 @@ static bool readRegValue(const string& keyPath, const string& valueName,
         &bufSize) == ERROR_SUCCESS;
 }
 
-// 工具：写入注册表值
+// 工具：写入注册表值喵
 static bool writeRegValue(const string& keyPath, const string& valueName,
     const string& data)
 {
@@ -124,7 +124,7 @@ static bool writeRegValue(const string& keyPath, const string& valueName,
     return ret == ERROR_SUCCESS;
 }
 
-// 生成我们希望的命令行
+// 生成我们希望的命令行喵
 static string makeGuardCommand(const string& instanceName)
 {
     char userProfile[MAX_PATH];
@@ -147,7 +147,7 @@ static string makeGuardCommand(const string& instanceName)
     return string(cmd);
 }
 
-// 守护循环
+// 守护循环喵
 static void guardRegist(const string& instanceName, const L10N& L)
 {
     const string key = "Software\\Classes\\vscode\\shell\\open\\command";
@@ -161,7 +161,7 @@ static void guardRegist(const string& instanceName, const L10N& L)
         DWORD len = sizeof(current);
         if (!readRegValue(key, "", current, len))
         {
-            // 读不到就视为被删了
+            // 读不到就视为被删了喵
             cout << "[WARN] 注册表读取失败，尝试重新写入...\n";
         }
 
@@ -173,7 +173,7 @@ static void guardRegist(const string& instanceName, const L10N& L)
             else
                 cout << "[ERR] 修复失败\n";
         }
-        Sleep(1000);   // 每 1 秒检查一次
+        Sleep(1000);   // 每 1 秒检查一次喵
     }
 }
 
@@ -183,14 +183,14 @@ bool restoreCodeProtocol(const std::string& codePath)
 
     std::string cmd = "\"" + codePath + "\" --open-url -- \"%1\"";
 
-    // 1. 重建命令 - 修正为 vscode 协议
+    // 1. 重建命令 - 修正为 vscode 协议喵
     HKEY hKey;
     std::string key = "Software\\Classes\\vscode\\shell\\open\\command";
     RegCreateKeyExA(HKEY_CURRENT_USER, key.c_str(), 0, nullptr, 0, KEY_WRITE, nullptr, &hKey, nullptr);
     RegSetValueExA(hKey, "", 0, REG_SZ, (LPBYTE)cmd.c_str(), (DWORD)cmd.size() + 1);
     RegCloseKey(hKey);
 
-    // 2. 加 URL Protocol
+    // 2. 加 URL Protocol喵
     key = "Software\\Classes\\vscode";
     RegCreateKeyExA(HKEY_CURRENT_USER, key.c_str(), 0, nullptr, 0, KEY_WRITE, nullptr, &hKey, nullptr);
     RegSetValueExA(hKey, "URL Protocol", 0, REG_SZ, (LPBYTE)"", 1);
@@ -215,7 +215,7 @@ string rootDir(const string& name)
     if (it != g_otherPath.end() && fileExists(it->second))
         return it->second;
 
-    return def; // 实在没有就返回默认，留给调用者报错
+    return def; // 实在没有就返回默认，留给调用者报错喵
 }
 
 bool fileExists(const string& path) {
@@ -226,12 +226,12 @@ bool backupOriginalVSCodeHandler()
 {
     char buf[1024];
     DWORD len = sizeof(buf);
-    // 检查 vscode 协议是否存在
+    // 检查 vscode 协议是否存在喵
     if (RegGetValueA(HKEY_CURRENT_USER,
         "Software\\Classes\\vscode\\shell\\open\\command",
         "", RRF_RT_REG_SZ, nullptr, buf, &len) == ERROR_SUCCESS)
     {
-        // 备份到特定位置
+        // 备份到特定位置喵
         RegSetKeyValueA(HKEY_CURRENT_USER,
             "Software\\Classes",
             "vsenv_backup_vscode_cmd",
@@ -252,7 +252,7 @@ bool restoreOriginalVSCodeHandler()
         "vsenv_backup_vscode_cmd",
         RRF_RT_REG_SZ, nullptr, buf, &len) == ERROR_SUCCESS)
     {
-        // 重建 vscode:// 协议
+        // 重建 vscode:// 协议喵
         HKEY hKey;
         RegCreateKeyA(HKEY_CURRENT_USER,
             "Software\\Classes\\vscode\\shell\\open\\command",
@@ -260,14 +260,14 @@ bool restoreOriginalVSCodeHandler()
         RegSetValueExA(hKey, "", 0, REG_SZ, (LPBYTE)buf, len);
         RegCloseKey(hKey);
 
-        // 设置 URL Protocol
+        // 设置 URL Protocol喵
         RegCreateKeyA(HKEY_CURRENT_USER,
             "Software\\Classes\\vscode",
             &hKey);
         RegSetValueExA(hKey, "URL Protocol", 0, REG_SZ, (LPBYTE)"", 1);
         RegCloseKey(hKey);
 
-        // 删除备份
+        // 删除备份喵
         RegDeleteKeyValueA(HKEY_CURRENT_USER,
             "Software\\Classes",
             "vsenv_backup_vscode_cmd");
@@ -285,7 +285,7 @@ string officialCodeExe() {
 
 bool registerCustomProtocol(const string& instanceName)
 {
-    // 1. 拼绝对路径
+    // 1. 拼绝对路径喵
     char userProfile[MAX_PATH];
     SHGetFolderPathA(nullptr, CSIDL_PROFILE, nullptr, 0, userProfile);
 
@@ -298,7 +298,7 @@ bool registerCustomProtocol(const string& instanceName)
     char extDir[MAX_PATH];
     PathCombineA(extDir, userProfile, (".vsenv\\" + instanceName + "\\extensions").c_str());
 
-    // 2. 修复命令行参数：添加 --open-url 和 --
+    // 2. 修复命令行参数：添加 --open-url 和 --喵
     string cmdLine;
     cmdLine += "\"";
     cmdLine += exePath;
@@ -308,11 +308,11 @@ bool registerCustomProtocol(const string& instanceName)
     cmdLine += extDir;
     cmdLine += "\" -- \"%1\"";
 
-    // 3. 写注册表
+    // 3. 写注册表喵
     HKEY hKey;
     string protocol = "Software\\Classes\\vsenv-" + instanceName;
 
-    // 根键
+    // 根键喵
     RegCreateKeyExA(HKEY_CURRENT_USER, protocol.c_str(), 0, nullptr, 0, KEY_WRITE, nullptr, &hKey, nullptr);
     RegSetValueExA(hKey, "", 0, REG_SZ, (LPBYTE)("URL:vsenv-" + instanceName).c_str(), (DWORD)("URL:vsenv-" + instanceName).size() + 1);
     RegSetValueExA(hKey, "URL Protocol", 0, REG_SZ, (LPBYTE)"", 1);
@@ -346,7 +346,7 @@ bool registVSCodeProtocol(const std::string& instanceName)
     PathCombineA(extDir, userProfile,
         (".vsenv\\" + instanceName + "\\extensions").c_str());
 
-    // 直接注册一条最简单的命令行
+    // 直接注册一条最简单的命令行喵
     char cmdLine[4096];
     snprintf(cmdLine, sizeof(cmdLine),
         "\"%s\" --user-data-dir=\"%s\" --extensions-dir=\"%s\" --open-url -- %%1",
@@ -364,7 +364,7 @@ bool registVSCodeProtocol(const std::string& instanceName)
         static_cast<DWORD>(strlen(cmdLine) + 1));
     RegCloseKey(hKey);
 
-    // 写入 URL Protocol 空值
+    // 写入 URL Protocol 空值喵
     key = "Software\\Classes\\vscode";
     if (RegCreateKeyExA(HKEY_CURRENT_USER, key.c_str(), 0, nullptr, 0,
         KEY_WRITE, nullptr, &hKey, nullptr) != ERROR_SUCCESS)
@@ -430,11 +430,17 @@ void applyFakeHardwareProfile(const string& instanceName, const FakeHardwareID& 
 static void loadOtherPath()
 {
     g_otherPath.clear();
-    std::ifstream f(homeDir() + "\\.vsenv\\otherPath.json");
+    std::string jsonFile = homeDir() + "\\.vsenv\\otherPath.json";
+
+    // 目录不存在就拉倒，不报错喵
+    if (!fileExists(jsonFile))
+        return;
+
+    std::ifstream f(jsonFile);
     if (!f) return;
+
     std::string line;
-    while (std::getline(f, line))
-    {
+    while (std::getline(f, line)) {
         auto pos = line.find('\t');
         if (pos == std::string::npos) continue;
         g_otherPath[line.substr(0, pos)] = line.substr(pos + 1);
@@ -443,21 +449,33 @@ static void loadOtherPath()
 
 static void saveOtherPathEntry(const std::string& name, const std::string& real)
 {
-    loadOtherPath(); // 先读，防止覆盖已有条目
+    loadOtherPath();                       // 先读，防止覆盖已有条目喵
     g_otherPath[name] = real;
-    _mkdir((homeDir() + "\\.vsenv").c_str());
-    std::ofstream f(homeDir() + "\\.vsenv\\otherPath.json", std::ios::trunc);
+
+    std::string vsenvDir = homeDir() + "\\.vsenv";
+    std::string jsonFile = vsenvDir + "\\otherPath.json";
+
+    // 1. 确保目录存在
+    if (!fileExists(vsenvDir))
+        SHCreateDirectoryExA(nullptr, vsenvDir.c_str(), nullptr);
+
+    // 2. 写文件
+    std::ofstream f(jsonFile, std::ios::trunc);
+    if (!f) {
+        cerr << "警告：无法写入 otherPath.json\n";
+        return;
+    }
     for (const auto& kv : g_otherPath)
         f << kv.first << '\t' << kv.second << '\n';
 }
 
-/* =========== 彩蛋 =========== */
+/* =========== 喵 =========== */
 void printBanner() {
-    cout << "==================================\n";
-    cout << "  追随马斯克的步伐，坚持免费开源\n";
-    cout << "==================================\n\n";
+    cout << "=======================================\n";
+    cout << "  本软件完全免费开源，买到就是被骗啦！\n";
+    cout << "=======================================\n\n";
     cout << " VSenv " << "Beta " << VSENV_VERSION << " by " << VSENV_AUTHOR << " (" << VSENV_LICENSE << ")\n\n";
-    cout << " VSenv 2025 Copyright dhjs0000。\n\n";
+    cout << " VSenv © 2025 by dhjs0000，用爱发电中～\n\n";
 }
 
 /* =========== 隔离方案实现 =========== */
@@ -717,8 +735,42 @@ void startWithNetworkIsolation(const string& name, const L10N& L, bool randomHos
 
 /* =========== 业务逻辑 =========== */
 
+void listInstances(const L10N& L)
+{
+    cout << "Instance Name\tPath\n";
+    cout << "-----------------------------------------\n";
 
-// 实现（放在文件后面即可）
+    // 1. 枚举默认目录
+    string base = homeDir() + "\\.vsenv";
+    WIN32_FIND_DATAA fd;
+    HANDLE h = FindFirstFileA((base + "\\*").c_str(), &fd);
+    if (h != INVALID_HANDLE_VALUE) {
+        do {
+            if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+                string name = fd.cFileName;
+                if (name == "." || name == "..") continue;
+                string path = base + "\\" + name;
+                // 只要目录里存在 vscode\Code.exe 就认为是合法实例
+                if (fileExists(path + "\\vscode\\Code.exe"))
+                    cout << name << "\t" << path << "\n";
+                else {
+					cout << name << "\t" << path << " (无效实例)\n";
+                }
+            }
+        } while (FindNextFileA(h, &fd));
+        FindClose(h);
+    }
+
+    // 2. 枚举 otherPath.json 里的额外路径
+    loadOtherPath();
+    for (const auto& kv : g_otherPath) {
+        cout << kv.first << "\t" << kv.second;
+        if (!fileExists(kv.second + "\\vscode\\Code.exe"))
+            cout << " (无效实例)";
+        cout << "\n";
+    }
+}
+
 void create(const string& name, const string& customPath, const L10N& L)
 {
     string dir;
@@ -886,6 +938,7 @@ int main(int argc, char** argv) {
             "  vsenv logoff                # 恢复默认的 vscode:// 协议处理程序\n"
             "  vsenv rest <路径>            # 手动重建 vscode:// 协议（支持拖拽带双引号的路径）\n"
 			"  vsenv extension <实例名> <扩展ID> [--lang cn]\n"
+            "  vsenv list                   # 列出全部实例\n"
             "\n"
             "全局选项：\n"
             "  --lang <en|cn>   设置界面语言，默认为 \"en\"。\n"
@@ -919,6 +972,7 @@ int main(int argc, char** argv) {
 
     string cmd = argv[1];
     if (cmd == "rest") {
+        printBanner();
         // 处理带双引号的路径 (用户拖拽文件时可能包含)
         string path;
         if (argc >= 3) {
@@ -951,6 +1005,23 @@ int main(int argc, char** argv) {
         return 0;
     }
 
+    else if (cmd == "logoff") {
+        
+        if (restoreOriginalVSCodeHandler()) {
+            cout << lang.logoffOK << "\n";
+            return 0;
+        }
+        else {
+            cerr << "恢复 vscode:// 失败\n";
+            return 1;
+        }
+    }
+    else if (cmd == "list") {
+        
+        listInstances(lang);
+        return 0;
+    }
+
     // 其他命令需要实例名称
     if (argc < 3) {
         cerr << "错误：需要实例名称\n";
@@ -960,21 +1031,26 @@ int main(int argc, char** argv) {
     string name = argv[2];
     if (cmd == "create")
     {
+        
         string custom;
         if (argc >= 4 && argv[3][0] != '-')   // 不是开关就是路径
             custom = argv[3];
         create(name, custom, lang);
     }
     else if (cmd == "start") {
+        
         start(name, lang, randomHost, randomMac, proxy, useSandbox, useAppContainer, useWSB, fakeHW);
     }
     else if (cmd == "stop") {
+        
         stop(name, lang, argv[0]);
     }
     else if (cmd == "remove") {
+        
         remove(name, lang, argv[0]);
     }
     else if (cmd == "regist") {
+        
         backupOriginalVSCodeHandler();   // 先备份
         if (registVSCodeProtocol(name)) {
             printf(lang.registOK.c_str(), name.c_str());
@@ -983,23 +1059,18 @@ int main(int argc, char** argv) {
             cerr << "注册失败\n";
         }
     }
-    else if (cmd == "logoff") {
-        if (restoreOriginalVSCodeHandler()) {
-            cout << lang.logoffOK << "\n";
-        }
-        else {
-            cerr << "恢复 vscode:// 失败\n";
-        }
-    }
     else if (cmd == "regist-guard") {   // 新增
+        
         guardRegist(name, lang);
     }
     else if (cmd == "extension") {
+        
         string extId = (argc >= 4) ? argv[3]
             : "MS-CEINTL.vscode-language-pack-zh-hans";
         installExtension(name, extId, lang);
     }
     else {
+        
         cerr << "无效命令 '" << cmd << "'";
         return 1;
     }
