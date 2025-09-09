@@ -4,12 +4,12 @@
     该程序允许用户创建、启动、停止和删除独立的 VS Code 实例，
     每个实例拥有独立的用户数据和扩展目录。
 
-    版本：1.0.0 RC1
+    版本：1.0.0 RC2
 */
 
 // 常量定义
 
-#define VSENV_VERSION "1.0.0 RC1"
+#define VSENV_VERSION "1.0.0 RC2"
 #define VSENV_AUTHOR "dhjs0000"
 #define VSENV_LICENSE "AGPLv3.0"
 
@@ -481,8 +481,8 @@ void printBanner() {
     cout << "=======================================\n";
     cout << "  本软件完全免费开源，买到就是被骗啦！\n";
     cout << "=======================================\n\n";
-    cout << " VSenv " << "Beta " << VSENV_VERSION << " by " << VSENV_AUTHOR << " (" << VSENV_LICENSE << ")\n\n";
-    cout << " VSenv © 2025 by dhjs0000，用爱发电中～\n\n";
+    cout << " VSenv " << VSENV_VERSION << " by " << VSENV_AUTHOR << " (" << VSENV_LICENSE << ")\n\n";
+    cout << " VSenv (C) 2025 by dhjs0000，为爱发电中～\n\n";
 }
 
 /* =========== 隔离方案实现 =========== */
@@ -1240,15 +1240,15 @@ int main(int argc, char** argv) {
             "  vsenv stop   <实例名> [--lang cn]\n"
             "  vsenv remove <实例名> [--lang cn]\n"
             "  vsenv regist <实例名>        # 将 vscode:// 协议重定向到此实例\n"
-			"  vsenv regist-guard <实例名>  # 守护 vscode:// 协议不被篡改（需管理员权限）\n"
+            "  vsenv regist-guard <实例名>  # 守护 vscode:// 协议不被篡改（需管理员权限）\n"
             "  vsenv logoff                # 恢复默认的 vscode:// 协议处理程序\n"
             "  vsenv rest <路径>            # 手动重建 vscode:// 协议（支持拖拽带双引号的路径）\n"
             "  vsenv extension <实例名> <扩展ID>          # 安装单个扩展\n"
             "  vsenv extension import <实例名> <列表文件> # 批量安装\n"
             "  vsenv extension list   <实例名>            # 列出已装扩展\n"
             "  vsenv list                   # 列出全部实例\n"
-			"  vsenv export <实例名> <导出路径> [--lang cn]\n"
-			"  vsenv import <配置文件> [新实例名] [--lang cn]\n"
+            "  vsenv export <实例名> <导出路径> [--lang cn]\n"
+            "  vsenv import <配置文件> [新实例名] [--lang cn]\n"
             "\n"
             "全局选项：\n"
             "  --lang <en|cn>   设置界面语言，默认为 \"en\"。\n"
@@ -1265,18 +1265,7 @@ int main(int argc, char** argv) {
             "                      隔离程度最高，需 Windows Pro/Enterprise）。\n"
             "  --fake-hw           随机化硬件指纹（CPUID、磁盘序列号、MAC）以增强隐私和隔离。\n"
             "\n"
-			"vsenv extension介绍：\n"
-			"  若<扩展ID>为空，则默认安装中文语言包（MS-CEINTL.vscode-language-pack-zh-hans）。\n"
-            "  查找扩展的扩展ID：\n"
-            "    打开 https://marketplace.visualstudio.com → 搜想要的扩展 → 地址栏或页面右侧的 “Unique Identifier” 就是。\n"
-            "    例如：\n"
-            "      https://marketplace.visualstudio.com/items?itemName=ms-python.python \n"
-            "      扩展 ID = ms - python.python\n"
-            "\n"
-            "指令示例：\n"
-            "  vsenv create work --lang cn # 创建名为work的环境\n"
-            "  vsenv start work --appcontainer --fake-hw # 以AppContainer运行work环境并启用硬件指纹混淆\n"
-            "  vsenv start work --host --mac --proxy http://proxy.internal:3128 --wsb # 以Windows SandBox运行work环境并开启网络混淆和代理\n";
+            "更多帮助：https://dhjs0000.github.io/VSenv/helps.html";
         return 1;
     }
     // ============================== 不需要实例名称的 ==============================
