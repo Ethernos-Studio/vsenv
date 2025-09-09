@@ -4,12 +4,12 @@
     该程序允许用户创建、启动、停止和删除独立的 VS Code 实例，
     每个实例拥有独立的用户数据和扩展目录。
 
-    版本：beta 0.7.0
+    版本：1.0.0 RC1
 */
 
 // 常量定义
 
-#define VSENV_VERSION "0.7.0"
+#define VSENV_VERSION "1.0.0 RC1"
 #define VSENV_AUTHOR "dhjs0000"
 #define VSENV_LICENSE "AGPLv3.0"
 
@@ -901,30 +901,8 @@ void remove(const string& name, const L10N& L, char* argv0) {\
     printf(L.removed.c_str(), name.c_str());
 }
 
-void installExtension(const string& name, const string& extId, const L10N& L) {
-    string cli = vsCodeCliPath(name);
-    if (!fileExists(cli)) {
-        cerr << L.extNotFound << "\n";
-        return;
-    }
 
-    string args = "\"" + cli + "\" --install-extension \"" + extId + "\" "
-        "--user-data-dir=\"" + rootDir(name) + "\\data\" "
-        "--extensions-dir=\"" + rootDir(name) + "\\extensions\"";
-
-    STARTUPINFOA si{ sizeof(si) };
-    PROCESS_INFORMATION pi{};
-    if (CreateProcessA(nullptr, const_cast<char*>(args.c_str()),
-        nullptr, nullptr, FALSE, 0, nullptr, nullptr, &si, &pi)) {
-        WaitForSingleObject(pi.hProcess, INFINITE);
-        CloseHandle(pi.hThread);
-        CloseHandle(pi.hProcess);
-        printf(L.extOK.c_str(), extId.c_str());
-    }
-    else {
-        cerr << "Install failed, code: " << GetLastError() << "\n";
-    }
-}
+/* =========== 导入导出相关 =========== */
 
 // 导出实例函数（打包整个实例）
 void exportInstance(const string& name, const string& exportPath, const L10N& L) {
@@ -1158,6 +1136,79 @@ void importInstance(const string& importFile, const string& newName, const L10N&
     system(("rmdir /s /q \"" + tempDir + "\"").c_str());
 }
 
+/* =========== 扩展相关 =========== */
+
+void installExtension(const string& name, const string& extId, const L10N& L) {
+    string cli = vsCodeCliPath(name);
+    if (!fileExists(cli)) {
+        cerr << L.extNotFound << "\n";
+        return;
+    }
+
+    string args = "\"" + cli + "\" --install-extension \"" + extId + "\" "
+        "--user-data-dir=\"" + rootDir(name) + "\\data\" "
+        "--extensions-dir=\"" + rootDir(name) + "\\extensions\"";
+
+    STARTUPINFOA si{ sizeof(si) };
+    PROCESS_INFORMATION pi{};
+    if (CreateProcessA(nullptr, const_cast<char*>(args.c_str()),
+        nullptr, nullptr, FALSE, 0, nullptr, nullptr, &si, &pi)) {
+        WaitForSingleObject(pi.hProcess, INFINITE);
+        CloseHandle(pi.hThread);
+        CloseHandle(pi.hProcess);
+        printf(L.extOK.c_str(), extId.c_str());
+    }
+    else {
+        cerr << "Install failed, code: " << GetLastError() << "\n";
+    }
+}
+// 批量安装
+void importExtensions(const string& name, const string& listFile, const L10N& L)
+{
+    if (!fileExists(listFile)) {
+        cerr << "扩展列表文件不存在: " << listFile << "\n";
+        return;
+    }
+    std::ifstream fin(listFile);
+    if (!fin) {
+        cerr << "无法读取扩展列表文件\n";
+        return;
+    }
+    string line;
+    while (std::getline(fin, line)) {
+        line.erase(0, line.find_first_not_of(" \t\r\n"));
+        line.erase(line.find_last_not_of(" \t\r\n") + 1);
+        if (line.empty() || line.front() == '#') continue;   // 支持行注释
+        installExtension(name, line, L);                     // 复用已有函数
+    }
+}
+
+// 列出已装扩展
+void listExtensions(const string& name, const L10N& L)
+{
+    string cli = vsCodeCliPath(name);
+    if (!fileExists(cli)) {
+        cerr << L.extNotFound << "\n";
+        return;
+    }
+    string args = "\"" + cli + "\" --list-extensions "
+        "--user-data-dir=\"" + rootDir(name) + "\\data\" "
+        "--extensions-dir=\"" + rootDir(name) + "\\extensions\"";
+
+    // 直接让 code CLI 输出，不捕获
+    STARTUPINFOA si{ sizeof(si) };
+    PROCESS_INFORMATION pi{};
+    if (CreateProcessA(nullptr, const_cast<char*>(args.c_str()),
+        nullptr, nullptr, FALSE, 0, nullptr, nullptr, &si, &pi)) {
+        WaitForSingleObject(pi.hProcess, INFINITE);
+        CloseHandle(pi.hThread);
+        CloseHandle(pi.hProcess);
+    }
+    else {
+        cerr << "列出扩展失败，错误码: " << GetLastError() << "\n";
+    }
+}
+
 /* =========== 入口 =========== */
 int main(int argc, char** argv) {
     printBanner();
@@ -1192,7 +1243,9 @@ int main(int argc, char** argv) {
 			"  vsenv regist-guard <实例名>  # 守护 vscode:// 协议不被篡改（需管理员权限）\n"
             "  vsenv logoff                # 恢复默认的 vscode:// 协议处理程序\n"
             "  vsenv rest <路径>            # 手动重建 vscode:// 协议（支持拖拽带双引号的路径）\n"
-			"  vsenv extension <实例名> <扩展ID> [--lang cn]\n"
+            "  vsenv extension <实例名> <扩展ID>          # 安装单个扩展\n"
+            "  vsenv extension import <实例名> <列表文件> # 批量安装\n"
+            "  vsenv extension list   <实例名>            # 列出已装扩展\n"
             "  vsenv list                   # 列出全部实例\n"
 			"  vsenv export <实例名> <导出路径> [--lang cn]\n"
 			"  vsenv import <配置文件> [新实例名] [--lang cn]\n"
@@ -1321,10 +1374,28 @@ int main(int argc, char** argv) {
         guardRegist(name, lang);
     }
     else if (cmd == "extension") {
-        
-        string extId = (argc >= 4) ? argv[3]
-            : "MS-CEINTL.vscode-language-pack-zh-hans";
-        installExtension(name, extId, lang);
+        if (argc < 3) {
+            cerr << "用法:\n"
+                "  vsenv extension <实例名> <扩展ID>          # 安装单个扩展\n"
+                "  vsenv extension import <实例名> <列表文件> # 批量安装\n"
+                "  vsenv extension list   <实例名>            # 列出已装扩展\n";
+            return 1;
+        }
+        string sub = argv[2];
+        if (sub == "import") {
+            if (argc < 5) { cerr << "需要指定列表文件\n"; return 1; }
+            importExtensions(argv[3], argv[4], lang);
+        }
+        else if (sub == "list") {
+            if (argc < 4) { cerr << "需要指定实例名\n"; return 1; }
+            listExtensions(argv[3], lang);
+        }
+        else {
+            // 保持原有单扩展安装逻辑
+            string extId = (argc >= 4) ? argv[3]
+                : "MS-CEINTL.vscode-language-pack-zh-hans";
+            installExtension(sub, extId, lang);
+        }
     }
     else if (cmd == "export") {
         if (argc < 4) {
