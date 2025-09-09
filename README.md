@@ -85,6 +85,10 @@ A：使用 `vsenv remove 实例名` 后重新创建。
 **Q：是否支持共享扩展？**  
 A：每个实例完全独立，但可通过手动创建符号链接实现共享。
 
+## 第三方库
+
+nlohmann/json.hpp   许可证： third-party/NLOHMANN-JSON-LICENSES.txt
+
 ---
 
 **追随马斯克的步伐，坚持免费开源**  
