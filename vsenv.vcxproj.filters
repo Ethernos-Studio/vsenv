@@ -13,6 +13,9 @@
       <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
       <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
     </Filter>
+    <Filter Include="repo">
+      <UniqueIdentifier>{090f8a76-3ed7-4709-815e-8b6d7fadfdf2}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="main.cpp">
@@ -26,5 +29,19 @@
     <None Include="vsenv-stop.ps1">
       <Filter>资源文件</Filter>
     </None>
+    <None Include="README.md">
+      <Filter>repo</Filter>
+    </None>
+    <None Include="README_EN.md">
+      <Filter>repo</Filter>
+    </None>
+  </ItemGroup>
+  <ItemGroup>
+    <Text Include="LICENSE.txt">
+      <Filter>repo</Filter>
+    </Text>
+    <Text Include="third-party\NLOHMANN-JSON-LICENSES.txt">
+      <Filter>repo</Filter>
+    </Text>
   </ItemGroup>
 </Project>

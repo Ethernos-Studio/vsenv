@@ -132,8 +132,14 @@
     <ClCompile Include="main.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <None Include="README.md" />
+    <None Include="README_EN.md" />
     <None Include="vsenv-net.ps1" />
     <None Include="vsenv-stop.ps1" />
+  </ItemGroup>
+  <ItemGroup>
+    <Text Include="LICENSE.txt" />
+    <Text Include="third-party\NLOHMANN-JSON-LICENSES.txt" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

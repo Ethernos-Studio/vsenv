@@ -4,12 +4,12 @@
     该程序允许用户创建、启动、停止和删除独立的 VS Code 实例，
     每个实例拥有独立的用户数据和扩展目录。
 
-    版本：1.0.0 RC2
+    版本：1.0.0
 */
 
 // 常量定义
 
-#define VSENV_VERSION "1.0.0 RC2"
+#define VSENV_VERSION "1.0.0"
 #define VSENV_AUTHOR "dhjs0000"
 #define VSENV_LICENSE "AGPLv3.0"
 
@@ -33,6 +33,9 @@
 #include <unordered_map>
 #include <fstream>
 #include <nlohmann/json.hpp> // 需要添加JSON库支持
+#include <tlhelp32.h>
+#include <psapi.h>
+
 
 using json = nlohmann::json;
 static std::unordered_map<std::string, std::string> g_otherPath;
@@ -40,6 +43,7 @@ static std::unordered_map<std::string, std::string> g_otherPath;
 static void loadOtherPath();
 static void saveOtherPathEntry(const std::string& name, const std::string& real);
 
+#pragma comment(lib, "psapi.lib")
 #pragma comment(lib, "shlwapi.lib")
 #pragma comment(lib, "shell32.lib")
 #pragma comment(lib, "userenv.lib")
@@ -78,11 +82,11 @@ static L10N CN = { "VSenv - 独立 VS Code 实例管理器",
                    "vscode:// 现在会跳转到实例'%s'",
                    "vscode:// 现在会跳转到原来的VSCode",
                    "无法跳转至 VS Code？使用 --rest 以恢复/重建 vscode:// 协议",
-                   "硬件指纹已随机化: CPUID=%s, 磁盘序列号=%s, MAC地址=%s" 
-			       "VS Code CLI 未找到，无法安装扩展。",
-	               "扩展 '%s' 已安装。"
-	               "正在检查中文语言包...",
-				   "中文语言包已安装。"
+                   "硬件指纹已随机化: CPUID=%s, 磁盘序列号=%s, MAC地址=%s"
+                   "VS Code CLI 未找到，无法安装扩展。",
+                   "扩展 '%s' 已安装。"
+                   "正在检查中文语言包...",
+                   "中文语言包已安装。"
 };
 
 /* =========== 工具函数 =========== */
@@ -480,6 +484,7 @@ static void saveOtherPathEntry(const std::string& name, const std::string& real)
 void printBanner() {
     cout << "=======================================\n";
     cout << "  本软件完全免费开源，买到就是被骗啦！\n";
+    cout << "  https://github.com/dhjs0000/vsenv\n";
     cout << "=======================================\n\n";
     cout << " VSenv " << VSENV_VERSION << " by " << VSENV_AUTHOR << " (" << VSENV_LICENSE << ")\n\n";
     cout << " VSenv (C) 2025 by dhjs0000，为爱发电中～\n\n";
@@ -634,7 +639,7 @@ bool startInAppContainer(const string& name, const L10N& L) {
         return false;
     }
 }
-
+// 战略保留 AppCntainer
 void startInWindowsSandbox(const string& name, const L10N& L) {
     string dir = rootDir(name);
     string exe = dir + "\\vscode\\Code.exe";
@@ -656,7 +661,7 @@ void startInWindowsSandbox(const string& name, const L10N& L) {
     system(cmd.c_str());
     printf(L.started.c_str(), name.c_str());
 }
-
+// 战略保留WSB
 void startWithNetworkIsolation(const string& name, const L10N& L, bool randomHost, bool randomMac, const string& proxy) {
     string dir = rootDir(name);
     string exe = dir + "\\vscode\\Code.exe";
@@ -683,12 +688,7 @@ void startWithNetworkIsolation(const string& name, const L10N& L, bool randomHos
         "        Write-Warning '需要管理员权限执行网络隔离操作'\n"
         "    }\n"
         "    \n"
-        "    # 随机主机名\n"
-        "    if ($RandomHost -and $isAdmin) {\n"
-        "        $env:ORIGINAL_HOSTNAME = $env:COMPUTERNAME\n"
-        "        $HostName = 'VS-' + (Get-Random -Minimum 1000 -Maximum 9999)\n"
-        "        Rename-Computer -NewName $HostName -Force\n"
-        "    }\n"
+        "    # 随机主机名(已删除)\n"
         "    \n"
         "    # 随机MAC地址\n"
         "    if ($RandomMac -and $isAdmin) {\n"
@@ -761,7 +761,7 @@ void listInstances(const L10N& L)
                 if (fileExists(path + "\\vscode\\Code.exe"))
                     cout << name << "\t" << path << "\n";
                 else {
-					cout << name << "\t" << path << " (无效实例)\n";
+                    cout << name << "\t" << path << " (无效实例)\n";
                 }
             }
         } while (FindNextFileA(h, &fd));
@@ -800,8 +800,14 @@ void create(const string& name, const string& customPath, const L10N& L)
         return;
     }
 
-    _mkdir((dir + "\\data").c_str());
-    _mkdir((dir + "\\extensions").c_str());
+    if (_mkdir((dir + "\\data").c_str()) == -1 && errno != EEXIST) {
+		cerr << "Failed to create data directory\n";
+		return;
+    }
+    if (_mkdir((dir + "\\extensions").c_str()) == -1 && errno != EEXIST) {
+        cerr << "Failed to create extensions directory\n";
+        return;
+    }
 
     if (!registerCustomProtocol(name))
         cerr << "Failed to register custom protocol\n";
@@ -812,7 +818,7 @@ void create(const string& name, const string& customPath, const L10N& L)
 
 void start(const string& name, const L10N& L,
     bool randomHost, bool randomMac, const string& proxy,
-    bool useSandbox, bool useAppContainer, bool useWSB, bool fakeHW) {
+	bool useSandbox, bool useAppContainer, bool useWSB, bool fakeHW) { // 由于前面程序使用了useAppContainer和useWSB参数，这里保留以防止编译错误
 
     if (fakeHW) {
         FakeHardwareID fakeID = generateFakeHardwareID();
@@ -823,13 +829,6 @@ void start(const string& name, const L10N& L,
 
     if (useSandbox) {
         if (startInSandbox(name, L)) return;
-    }
-    if (useAppContainer) {
-        if (startInAppContainer(name, L)) return;
-    }
-    if (useWSB) {
-        startInWindowsSandbox(name, L);
-        return;
     }
 
     string dir = rootDir(name);
@@ -868,7 +867,7 @@ void stop(const string& name, const L10N& L, char* argv0) {
     printf(L.stopped.c_str(), name.c_str());
 }
 
-void remove(const string& name, const L10N& L, char* argv0) {\
+void remove(const string& name, const L10N& L, char* argv0) {
 
     // 1. 如果当前劫持的是本实例，先还原 vscode://
     restoreOriginalVSCodeHandler();
@@ -1228,15 +1227,16 @@ int main(int argc, char** argv) {
             proxy = argv[++i];
         }
         else if (strcmp(argv[i], "--sandbox") == 0) useSandbox = true;
-        else if (strcmp(argv[i], "--appcontainer") == 0) useAppContainer = true;
-        else if (strcmp(argv[i], "--wsb") == 0) useWSB = true;
+        else if (strcmp(argv[i], "--appcontainer") == 0) cerr << "AppContainer支持已在正式版被删除，请使用sandbox\n";
+        else if (strcmp(argv[i], "--wsb") == 0) cerr << "WSB支持已在正式版被删除，请使用sandbox\n";
         else if (strcmp(argv[i], "--fake-hw") == 0) fakeHW = true;
+        else if (strcmp(argv[i], "--augment") == 0) cerr << "agument已在正式版被删除，请使用regist功能\n";
     }
 
     if (argc < 2) {
         cerr << "用法：\n"
             "  vsenv create <实例名> [路径] [--lang cn]\n"
-            "  vsenv start  <实例名> [--lang cn] [--host] [--mac] [--proxy <url>] [--sandbox|--appcontainer|--wsb] [--fake-hw]\n"
+            "  vsenv start  <实例名> [--lang cn] [--host] [--mac] [--proxy <url>] [--sandbox] [--fake-hw]\n"
             "  vsenv stop   <实例名> [--lang cn]\n"
             "  vsenv remove <实例名> [--lang cn]\n"
             "  vsenv regist <实例名>        # 将 vscode:// 协议重定向到此实例\n"
@@ -1260,9 +1260,6 @@ int main(int argc, char** argv) {
             "  --proxy <url>       强制所有 WinHTTP 流量通过指定的 HTTP(S) 代理。\n"
             "                      示例：--proxy http://127.0.0.1:8080\n"
             "  --sandbox           在受限的 Logon-Session 沙箱内启动 VS Code。\n"
-            "  --appcontainer(实验) 在 AppContainer 内启动 VS Code（中等隔离程度，Win32k 锁定，无管理员权限）。\n"
-            "  --wsb(实验)          在 Windows Sandbox 内启动 VS Code（完整虚拟操作系统，\n"
-            "                      隔离程度最高，需 Windows Pro/Enterprise）。\n"
             "  --fake-hw           随机化硬件指纹（CPUID、磁盘序列号、MAC）以增强隐私和隔离。\n"
             "\n"
             "更多帮助：https://dhjs0000.github.io/VSenv/helps.html";
@@ -1303,9 +1300,8 @@ int main(int argc, char** argv) {
         }
         return 0;
     }
-
     else if (cmd == "logoff") {
-        
+
         if (restoreOriginalVSCodeHandler()) {
             cout << lang.logoffOK << "\n";
             return 0;
@@ -1316,40 +1312,40 @@ int main(int argc, char** argv) {
         }
     }
     else if (cmd == "list") {
-        
+
         listInstances(lang);
         return 0;
     }
-    // 其他命令需要实例名称
+
+
     if (argc < 3) {
         cerr << "错误：需要实例名称\n";
         return 1;
     }
-
     // =============================== 需要实例名称的 ===============================
     string name = argv[2];
     if (cmd == "create")
     {
-        
+
         string custom;
         if (argc >= 4 && argv[3][0] != '-')   // 不是开关就是路径
             custom = argv[3];
         create(name, custom, lang);
     }
     else if (cmd == "start") {
-        
+
         start(name, lang, randomHost, randomMac, proxy, useSandbox, useAppContainer, useWSB, fakeHW);
     }
     else if (cmd == "stop") {
-        
+
         stop(name, lang, argv[0]);
     }
     else if (cmd == "remove") {
-        
+
         remove(name, lang, argv[0]);
     }
     else if (cmd == "regist") {
-        
+
         backupOriginalVSCodeHandler();   // 先备份
         if (registVSCodeProtocol(name)) {
             printf(lang.registOK.c_str(), name.c_str());
@@ -1359,7 +1355,7 @@ int main(int argc, char** argv) {
         }
     }
     else if (cmd == "regist-guard") {   // 新增
-        
+
         guardRegist(name, lang);
     }
     else if (cmd == "extension") {
@@ -1407,7 +1403,7 @@ int main(int argc, char** argv) {
     }
 
     else {
-        
+
         cerr << "无效命令 '" << cmd << "'";
         return 1;
     }
