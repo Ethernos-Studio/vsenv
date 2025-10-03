@@ -4,12 +4,12 @@
     该程序允许用户创建、启动、停止和删除独立的 VS Code 实例，
     每个实例拥有独立的用户数据和扩展目录。
 
-    版本：1.0.0
+    版本：1.1.0
 */
 
 // 常量定义
 
-#define VSENV_VERSION "1.0.0"
+#define VSENV_VERSION "1.1.0"
 #define VSENV_AUTHOR "dhjs0000"
 #define VSENV_LICENSE "AGPLv3.0"
 
@@ -28,6 +28,7 @@
 #include <shlwapi.h>   // 为了 PathAppendA
 #include <random>      // 添加随机数生成
 #include <iomanip>     // 添加流格式化
+#include <vector>
 
 #include <sstream>
 #include <unordered_map>
@@ -89,6 +90,132 @@ static L10N CN = { "VSenv - 独立 VS Code 实例管理器",
                    "中文语言包已安装。"
 };
 
+namespace con
+{
+    // 传统颜色代码
+    enum LegacyColor
+    {
+        BLACK = 0,
+        DARK_BLUE = FOREGROUND_BLUE,
+        DARK_GREEN = FOREGROUND_GREEN,
+        DARK_CYAN = FOREGROUND_GREEN | FOREGROUND_BLUE,
+        DARK_RED = FOREGROUND_RED,
+        DARK_MAGENTA = FOREGROUND_RED | FOREGROUND_BLUE,
+        DARK_YELLOW = FOREGROUND_RED | FOREGROUND_GREEN,
+        GRAY = FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE,
+        DARK_GRAY = GRAY | FOREGROUND_INTENSITY,
+        BLUE = DARK_BLUE | FOREGROUND_INTENSITY,
+        GREEN = DARK_GREEN | FOREGROUND_INTENSITY,
+        CYAN = DARK_CYAN | FOREGROUND_INTENSITY,
+        RED = DARK_RED | FOREGROUND_INTENSITY,
+        MAGENTA = DARK_MAGENTA | FOREGROUND_INTENSITY,
+        YELLOW = DARK_YELLOW | FOREGROUND_INTENSITY,
+        WHITE = GRAY | FOREGROUND_INTENSITY
+    };
+
+    static bool vtEnabled = false;
+
+    // 初始化：优先 VT，失败则用传统 API
+    void init()
+    {
+
+        HANDLE hOut = GetStdHandle(STD_ERROR_HANDLE);
+        if (hOut == INVALID_HANDLE_VALUE) return;
+
+        // 尝试开启 VT 处理
+        DWORD mode = 0;
+        if (GetConsoleMode(hOut, &mode))
+        {
+            if (SetConsoleMode(hOut, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING))
+                vtEnabled = true;
+            else
+                SetConsoleMode(hOut, mode); // 还原
+        }
+    }
+
+    // 设置颜色：VT 转义 或 SetConsoleTextAttribute
+    void setColor(LegacyColor c)
+    {
+        HANDLE hOut = GetStdHandle(STD_ERROR_HANDLE);
+        if (vtEnabled)
+        {
+            // 粗略映射到 ANSI
+            WORD w = static_cast<WORD>(c);
+            if (w & FOREGROUND_INTENSITY) std::cerr << "\033[1m";
+            if (w & FOREGROUND_RED)       std::cerr << "\033[31m";
+            if (w & FOREGROUND_GREEN)     std::cerr << "\033[32m";
+            if (w & FOREGROUND_BLUE)      std::cerr << "\033[34m";
+            if ((w & (FOREGROUND_RED | FOREGROUND_GREEN)) == (FOREGROUND_RED | FOREGROUND_GREEN))
+                std::cerr << "\033[33m";
+            if ((w & (FOREGROUND_GREEN | FOREGROUND_BLUE)) == (FOREGROUND_GREEN | FOREGROUND_BLUE))
+                std::cerr << "\033[36m";
+            if ((w & (FOREGROUND_RED | FOREGROUND_BLUE)) == (FOREGROUND_RED | FOREGROUND_BLUE))
+                std::cerr << "\033[35m";
+            if (w == WHITE) std::cerr << "\033[37m";
+        }
+        else
+        {
+            SetConsoleTextAttribute(hOut, static_cast<WORD>(c));
+        }
+    }
+
+    void reset()
+    {
+        if (vtEnabled)
+            std::cerr << "\033[0m";
+        else
+            setColor(GRAY);
+    }
+}
+
+
+// --------------- 用法字符串 ---------------
+void showUsage()
+{
+    using namespace con;
+
+    auto title = []() { setColor(CYAN); };
+    auto cmd = []() { setColor(GREEN); };
+    auto opt = []() { setColor(DARK_GRAY); };
+    auto url = []() { setColor(BLUE); SetConsoleTextAttribute(GetStdHandle(STD_ERROR_HANDLE), FOREGROUND_BLUE | FOREGROUND_INTENSITY); };
+    auto rst = []() { reset(); };
+
+    std::cerr << "\n";
+    title(); std::cerr << "用法：\n"; rst();
+    cmd();   std::cerr << "  vsenv --version"; rst(); std::cerr << "\t\t\t\t显示版本信息\n";
+    cmd();   std::cerr << "  vsenv create"; rst(); std::cerr << " <实例名> [路径] \n";
+    cmd();   std::cerr << "  vsenv start";  rst(); std::cerr << "  <实例名> ";
+    opt();   std::cerr << "[--host] [--mac] [--proxy <url>] [--sandbox] [--fake-hw]"; rst(); std::cerr << "\n";
+    std::cerr << "  "; title(); std::cerr << "[推荐]"; rst(); cmd(); std::cerr << "vsenv f"; rst(); std::cerr << "\t\t\t\t\t交互模式启动实例\n";
+    cmd();   std::cerr << "  vsenv stop";   rst(); std::cerr << "   <实例名> \n";
+    cmd();   std::cerr << "  vsenv remove"; rst(); std::cerr << " <实例名> \n";
+    cmd();   std::cerr << "  vsenv regist"; rst(); std::cerr << " <实例名>\t\t\t\t将 vscode:// 协议重定向到此实例\n";
+    cmd();   std::cerr << "  vsenv regist-guard"; rst(); std::cerr << " <实例名>\t\t\t守护 vscode:// 协议不被篡改（需管理员权限）\n";
+    cmd();   std::cerr << "  vsenv logoff"; rst(); std::cerr << "\t\t\t\t\t恢复默认的 vscode:// 协议处理程序\n";
+    cmd();   std::cerr << "  vsenv rest"; rst(); std::cerr << " <路径>\t\t\t\t手动重建 vscode:// 协议（支持拖拽带双引号的路径）\n";
+    cmd();   std::cerr << "  vsenv extension"; rst(); std::cerr << " <实例名> <扩展ID>\t\t安装单个扩展\n";
+    cmd();   std::cerr << "  vsenv extension import"; rst(); std::cerr << " <实例名> <列表文件>\t批量安装\n";
+    cmd();   std::cerr << "  vsenv extension list";   rst(); std::cerr << "   <实例名>\t\t列出已装扩展\n";
+    cmd();   std::cerr << "  vsenv list"; rst(); std::cerr << "\t\t\t\t\t列出全部实例\n";
+    cmd();   std::cerr << "  vsenv export"; rst(); std::cerr << " <实例名> <导出路径>\t\t导出实例\n";
+    cmd();   std::cerr << "  vsenv import"; rst(); std::cerr << " <配置文件> [新实例名]\t\t导入实例\n";
+    std::cerr << "\n";
+    title(); std::cerr << "全局选项：\n"; rst();
+    opt();   std::cerr << "  --lang <en|cn>"; rst() ; std::cerr << "   设置界面语言，默认为 \"en\"。\n"; rst();
+    std::cerr << "\n";
+    title(); std::cerr << "vsenv start 选项：\n"; rst();
+    opt();   std::cerr << "  --host"; rst(); std::cerr << "              在当前 Windows 会话内随机化主机名（需管理员权限）。\n"; rst();
+    std::cerr << "                      可用于隐藏真实计算机名。\n";
+    opt();   std::cerr << "  --mac"; rst(); std::cerr << "               生成随机 MAC 地址，并创建名为 VSenv-<实例名> 的临时虚拟网卡（需管理员权限）。\n"; rst();
+    opt();   std::cerr << "  --proxy <url>"; rst(); std::cerr << "       强制所有 WinHTTP 流量通过指定的 HTTP(S) 代理。\n"; rst();
+    std::cerr << "                      示例：";
+    title(); std::cerr << "--proxy http://127.0.0.1:8080"; rst();
+    std::cerr << " \n";
+    opt();   std::cerr << "  --sandbox"; rst(); std::cerr << "           在受限的 Logon-Session 沙箱内启动 VS Code。\n"; rst();
+    opt();   std::cerr << "  --fake-hw"; rst(); std::cerr << "           随机化硬件指纹（CPUID、磁盘序列号、MAC）以增强隐私和隔离。\n"; rst();
+    std::cerr << "\n";
+    url();   std::cerr << "更多帮助：https://dhjs0000.github.io/VSenv/helps.html\n"; rst();
+}
 /* =========== 工具函数 =========== */
 bool fileExists(const std::string& path);
 string rootDir(const string& name);
@@ -387,7 +514,7 @@ bool registVSCodeProtocol(const std::string& instanceName)
 
     return true;
 }
-
+ 
 /* =========== 硬件指纹伪造 =========== */
 struct FakeHardwareID {
     string cpuID;
@@ -742,40 +869,50 @@ void startWithNetworkIsolation(const string& name, const L10N& L, bool randomHos
 
 /* =========== 业务逻辑 =========== */
 
-void listInstances(const L10N& L)
+// 只负责打印，不再自己扫磁盘
+void printInstanceTable(const std::vector<std::pair<std::string, std::string>>& instances)
 {
     cout << "Instance Name\tPath\n";
     cout << "-----------------------------------------\n";
+    for (const auto& [n, p] : instances)
+    {
+        cout << n << "\t" << p;
+        if (!fileExists(p + "\\vscode\\Code.exe"))
+            cout << " (无效实例)";
+        cout << "\n";
+    }
+}
 
-    // 1. 枚举默认目录
+// 真正扫描磁盘，返回 vector
+std::vector<std::pair<std::string, std::string>> enumerateInstances()
+{
+    std::vector<std::pair<std::string, std::string>> res;
+
+    /* 1. 默认目录 */
     string base = homeDir() + "\\.vsenv";
     WIN32_FIND_DATAA fd;
     HANDLE h = FindFirstFileA((base + "\\*").c_str(), &fd);
-    if (h != INVALID_HANDLE_VALUE) {
-        do {
-            if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+    if (h != INVALID_HANDLE_VALUE)
+    {
+        do
+        {
+            if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+            {
                 string name = fd.cFileName;
                 if (name == "." || name == "..") continue;
                 string path = base + "\\" + name;
-                // 只要目录里存在 vscode\Code.exe 就认为是合法实例
-                if (fileExists(path + "\\vscode\\Code.exe"))
-                    cout << name << "\t" << path << "\n";
-                else {
-                    cout << name << "\t" << path << " (无效实例)\n";
-                }
+                res.emplace_back(name, path);
             }
         } while (FindNextFileA(h, &fd));
         FindClose(h);
     }
 
-    // 2. 枚举 otherPath.json 里的额外路径
+    /* 2. otherPath.json */
     loadOtherPath();
-    for (const auto& kv : g_otherPath) {
-        cout << kv.first << "\t" << kv.second;
-        if (!fileExists(kv.second + "\\vscode\\Code.exe"))
-            cout << " (无效实例)";
-        cout << "\n";
-    }
+    for (const auto& [n, p] : g_otherPath)
+        res.emplace_back(n, p);
+
+    return res;
 }
 
 void create(const string& name, const string& customPath, const L10N& L)
@@ -854,15 +991,8 @@ void start(const string& name, const L10N& L,
 }
 
 void stop(const string& name, const L10N& L, char* argv0) {
-    // 1. 杀进程
+    //杀进程
     system(("taskkill /FI \"WINDOWTITLE eq " + name + "*\" /T /F >nul 2>&1").c_str());
-
-    // 2. 调用外部脚本
-    //    假设脚本与 exe 同目录；若放在别处请自行调整路径
-    string cmd = "pwsh -NoLogo -NoProfile -ExecutionPolicy Bypass -File \""
-        + string(argv0).substr(0, string(argv0).find_last_of("\\/"))
-        + "\\vsenv-stop.ps1\" -InstanceName \"" + name + "\"";
-    system(cmd.c_str());
 
     printf(L.stopped.c_str(), name.c_str());
 }
@@ -900,6 +1030,81 @@ void remove(const string& name, const L10N& L, char* argv0) {
     printf(L.removed.c_str(), name.c_str());
 }
 
+void interactiveMode(const L10N& lang)
+{
+    system("cls");
+    printBanner();
+    cout << "交互模式：↑↓ 选择，回车启动，: 添加参数，Esc 退出\n\n";
+
+    auto instances = enumerateInstances();
+    if (instances.empty())
+    {
+        cout << "没有可用实例。\n";
+        return;
+    }
+
+    int cur = 0;
+    std::string extraArgs;
+
+    // 取控制台输入句柄
+    HANDLE hCon = GetStdHandle(STD_INPUT_HANDLE);
+    DWORD  mode;
+    GetConsoleMode(hCon, &mode);
+    SetConsoleMode(hCon, mode & ~(ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT));
+
+    while (true)
+    {
+        // 清屏并重画
+        COORD home = { 0, 11 };
+        SetConsoleCursorPosition(GetStdHandle(STD_OUTPUT_HANDLE), home);
+        for (int i = 0; i < (int)instances.size(); ++i)
+        {
+            if (i == cur) cout << " > "; else cout << "   ";
+            cout << instances[i].first;
+            if (!fileExists(instances[i].second + "\\vscode\\Code.exe"))
+                cout << " (无效)";
+            cout << "\n";
+        }
+        cout << "\n当前参数：[" << extraArgs << "]\n";
+
+        INPUT_RECORD rec;
+        DWORD        count;
+        ReadConsoleInputA(hCon, &rec, 1, &count);
+        if (rec.EventType != KEY_EVENT || !rec.Event.KeyEvent.bKeyDown)
+            continue;
+
+        WORD vk = rec.Event.KeyEvent.wVirtualKeyCode;
+        if (vk == VK_UP) { cur = (cur - 1 + instances.size()) % instances.size(); }
+        else if (vk == VK_DOWN) { cur = (cur + 1) % instances.size(); }
+        else if (vk == VK_ESCAPE) break;
+        else if (vk == VK_RETURN)
+        {
+            cout << "\n正在启动 " << instances[cur].first << " ...\n";
+            SetConsoleMode(hCon, mode);          // 恢复控制台模式
+            std::string fullCmd = instances[cur].first;
+            if (!extraArgs.empty()) fullCmd += " " + extraArgs;
+            // 解析参数并调用 start
+            // 简单做法：把 extraArgs 拆成 argc/argv 形式再传进 start
+            start(instances[cur].first, lang,
+                extraArgs.find("--host") != std::string::npos,
+                extraArgs.find("--mac") != std::string::npos,
+                extraArgs.find("--proxy") != std::string::npos ?
+                extraArgs.substr(extraArgs.find("--proxy") + 7) : "",
+                extraArgs.find("--sandbox") != std::string::npos,
+                false, false,                 // useAppContainer / useWSB 已废弃
+                extraArgs.find("--fake-hw") != std::string::npos);
+            break;
+        }
+        else if (vk == 0xBA)   // ':' 键
+        {
+            SetConsoleMode(hCon, mode);          // 先恢复行缓冲
+            cout << "\n请输入附加参数（如 --sandbox --fake-hw）：";
+            std::getline(std::cin, extraArgs);
+            SetConsoleMode(hCon, mode & ~(ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT));
+        }
+    }
+    SetConsoleMode(hCon, mode);                // 保险恢复
+}
 
 /* =========== 导入导出相关 =========== */
 
@@ -1233,41 +1438,17 @@ int main(int argc, char** argv) {
         else if (strcmp(argv[i], "--augment") == 0) cerr << "agument已在正式版被删除，请使用regist功能\n";
     }
 
-    if (argc < 2) {
-        cerr << "用法：\n"
-            "  vsenv create <实例名> [路径] [--lang cn]\n"
-            "  vsenv start  <实例名> [--lang cn] [--host] [--mac] [--proxy <url>] [--sandbox] [--fake-hw]\n"
-            "  vsenv stop   <实例名> [--lang cn]\n"
-            "  vsenv remove <实例名> [--lang cn]\n"
-            "  vsenv regist <实例名>        # 将 vscode:// 协议重定向到此实例\n"
-            "  vsenv regist-guard <实例名>  # 守护 vscode:// 协议不被篡改（需管理员权限）\n"
-            "  vsenv logoff                # 恢复默认的 vscode:// 协议处理程序\n"
-            "  vsenv rest <路径>            # 手动重建 vscode:// 协议（支持拖拽带双引号的路径）\n"
-            "  vsenv extension <实例名> <扩展ID>          # 安装单个扩展\n"
-            "  vsenv extension import <实例名> <列表文件> # 批量安装\n"
-            "  vsenv extension list   <实例名>            # 列出已装扩展\n"
-            "  vsenv list                   # 列出全部实例\n"
-            "  vsenv export <实例名> <导出路径> [--lang cn]\n"
-            "  vsenv import <配置文件> [新实例名] [--lang cn]\n"
-            "\n"
-            "全局选项：\n"
-            "  --lang <en|cn>   设置界面语言，默认为 \"en\"。\n"
-            "\n"
-            "vsenv start 选项：\n"
-            "  --host              在当前 Windows 会话内随机化主机名（需管理员权限）。\n"
-            "                      可用于隐藏真实计算机名。\n"
-            "  --mac               生成随机 MAC 地址，并创建名为 VSenv-<实例名> 的临时虚拟网卡（需管理员权限）。\n"
-            "  --proxy <url>       强制所有 WinHTTP 流量通过指定的 HTTP(S) 代理。\n"
-            "                      示例：--proxy http://127.0.0.1:8080\n"
-            "  --sandbox           在受限的 Logon-Session 沙箱内启动 VS Code。\n"
-            "  --fake-hw           随机化硬件指纹（CPUID、磁盘序列号、MAC）以增强隐私和隔离。\n"
-            "\n"
-            "更多帮助：https://dhjs0000.github.io/VSenv/helps.html";
+    if (argc < 2)
+    {
+        showUsage();
         return 1;
     }
     // ============================== 不需要实例名称的 ==============================
     string cmd = argv[1];
-    if (cmd == "rest") {
+    if (cmd == "--version") {
+        return 0;
+    }
+    else if (cmd == "rest") {
         printBanner();
         // 处理带双引号的路径 (用户拖拽文件时可能包含)
         string path;
@@ -1312,11 +1493,14 @@ int main(int argc, char** argv) {
         }
     }
     else if (cmd == "list") {
-
-        listInstances(lang);
+        auto v = enumerateInstances();
+        printInstanceTable(v);
         return 0;
     }
-
+    else if (cmd == "f") {
+        interactiveMode(lang);
+        return 0;
+    }
 
     if (argc < 3) {
         cerr << "错误：需要实例名称\n";
