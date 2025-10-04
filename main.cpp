@@ -4,12 +4,12 @@
     该程序允许用户创建、启动、停止和删除独立的 VS Code 实例，
     每个实例拥有独立的用户数据和扩展目录。
 
-    版本：1.1.0
+    版本：1.1.1
 */
 
 // 常量定义
 
-#define VSENV_VERSION "1.1.0"
+#define VSENV_VERSION "1.1.1"
 #define VSENV_AUTHOR "dhjs0000"
 #define VSENV_LICENSE "AGPLv3.0"
 
@@ -930,7 +930,11 @@ void create(const string& name, const string& customPath, const L10N& L)
     {
         dir = rootDir(name);
     }
-
+    if (_mkdir(homeDir().c_str()) == -1 && errno != EEXIST)
+    {
+        cerr << "Failed to create directory: " << dir << "\n";
+        return;
+    }
     if (_mkdir(dir.c_str()) == -1 && errno != EEXIST)
     {
         cerr << "Failed to create directory: " << dir << "\n";
