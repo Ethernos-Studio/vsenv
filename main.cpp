@@ -4,12 +4,12 @@
     该程序允许用户创建、启动、停止和删除独立的 VS Code 实例，
     每个实例拥有独立的用户数据和扩展目录。
 
-    版本：1.1.1
+    版本：1.2.0
 */
 
 // 常量定义
 
-#define VSENV_VERSION "1.1.1"
+#define VSENV_VERSION "1.2.0"
 #define VSENV_AUTHOR "dhjs0000"
 #define VSENV_LICENSE "AGPLv3.0"
 
@@ -25,7 +25,7 @@
 #include <userenv.h>
 #include <errno.h>  // 添加errno头文件
 #include <fstream>
-#include <shlwapi.h>   // 为了 PathAppendA
+#include <shlwapi.h>   // 为了 他妈的PathAppendA
 #include <random>      // 添加随机数生成
 #include <iomanip>     // 添加流格式化
 #include <vector>
@@ -194,8 +194,8 @@ void showUsage()
     cmd();   std::cerr << "  vsenv logoff"; rst(); std::cerr << "\t\t\t\t\t恢复默认的 vscode:// 协议处理程序\n";
     cmd();   std::cerr << "  vsenv rest"; rst(); std::cerr << " <路径>\t\t\t\t手动重建 vscode:// 协议（支持拖拽带双引号的路径）\n";
     cmd();   std::cerr << "  vsenv extension"; rst(); std::cerr << " <实例名> <扩展ID>\t\t安装单个扩展\n";
-    cmd();   std::cerr << "  vsenv extension import"; rst(); std::cerr << " <实例名> <列表文件>\t批量安装\n";
-    cmd();   std::cerr << "  vsenv extension list";   rst(); std::cerr << "   <实例名>\t\t列出已装扩展\n";
+    cmd();   std::cerr << "  vsenv extension "; rst(); std::cerr << "<实例名> "; cmd(); std::cerr << "import"; rst(); std::cerr << " <列表文件>\t批量安装\n";
+    cmd();   std::cerr << "  vsenv extension "; rst(); std::cerr << "<实例名> "; cmd(); std::cerr << "list";   rst(); std::cerr << "\t\t列出已装扩展\n";
     cmd();   std::cerr << "  vsenv list"; rst(); std::cerr << "\t\t\t\t\t列出全部实例\n";
     cmd();   std::cerr << "  vsenv export"; rst(); std::cerr << " <实例名> <导出路径>\t\t导出实例\n";
     cmd();   std::cerr << "  vsenv import"; rst(); std::cerr << " <配置文件> [新实例名]\t\t导入实例\n";
@@ -1550,18 +1550,19 @@ int main(int argc, char** argv) {
         if (argc < 3) {
             cerr << "用法:\n"
                 "  vsenv extension <实例名> <扩展ID>          # 安装单个扩展\n"
-                "  vsenv extension import <实例名> <列表文件> # 批量安装\n"
-                "  vsenv extension list   <实例名>            # 列出已装扩展\n";
+                "  vsenv extension <实例名> import <列表文件> # 批量安装\n"
+                "  vsenv extension <实例名> list             # 列出已装扩展\n";
             return 1;
         }
-        string sub = argv[2];
+        string IName = argv[2];
+        string sub = argv[3];
         if (sub == "import") {
             if (argc < 5) { cerr << "需要指定列表文件\n"; return 1; }
-            importExtensions(argv[3], argv[4], lang);
+            importExtensions(IName, argv[4], lang);
         }
         else if (sub == "list") {
             if (argc < 4) { cerr << "需要指定实例名\n"; return 1; }
-            listExtensions(argv[3], lang);
+            listExtensions(IName, lang);
         }
         else {
             // 保持原有单扩展安装逻辑
