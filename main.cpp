@@ -4,12 +4,12 @@
     该程序允许用户创建、启动、停止和删除独立的 VS Code 实例，
     每个实例拥有独立的用户数据和扩展目录。
 
-    版本：1.2.0
+    版本：1.3.0
 */
 
 // 常量定义
 
-#define VSENV_VERSION "1.2.0"
+#define VSENV_VERSION "1.3.0"
 #define VSENV_AUTHOR "dhjs0000"
 #define VSENV_LICENSE "AGPLv3.0"
 
@@ -17,6 +17,10 @@
 #define _WIN32_WINNT 0x0A00  // Windows 10
 
 #include <sdkddkver.h>
+
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX // 防止 min/max 宏污染
+
 #include <windows.h>
 #include <shlobj.h>
 #include <direct.h>
@@ -52,6 +56,7 @@ static void saveOtherPathEntry(const std::string& name, const std::string& real)
 using std::string;
 using std::cout;
 using std::cerr;
+
 
 /* =========== 语言包 =========== */
 struct L10N {
@@ -169,6 +174,232 @@ namespace con
 }
 
 
+/* =========== 工具函数 =========== */
+bool fileExists(const std::string& path);
+string rootDir(const string& name);
+string homeDir();
+
+
+struct Command {
+    std::string name;
+    std::string description;
+    std::function<int(int argc, char** argv)> handler{};
+};
+
+struct PluginManifest {
+    std::string name;
+    std::string version;
+    std::string author;
+    std::string entry;
+    std::vector<Command> commands;
+};
+
+struct Plugin {
+    std::string path;
+    PluginManifest manifest;
+    HMODULE hModule{};
+    /* 只保留函数对象，不再存 Command 结构 */
+    std::unordered_map<std::string, std::function<int(int, char**)>> commands;
+};
+
+static std::vector<Plugin> loadedPlugins;
+static std::unordered_map<std::string, std::function<int(int, char**)>> globalCommands;
+
+/* 工具：取文件名（不带路径） */
+static std::string getFileName(const std::string& full)
+{
+    size_t p = full.find_last_of("/\\");
+    return (p == std::string::npos) ? full : full.substr(p + 1);
+}
+
+/* 工具：简单判断后缀 .zip */
+static bool isZip(const std::string& f)
+{
+    return f.size() > 4 &&
+        (f.ends_with(".zip") || f.ends_with(".ZIP"));
+}
+
+/* 工具：读取 plugin.json 的 entry 字段 */
+static std::string getManifestEntry(const std::string& pathToJson)
+{
+    try {
+        std::ifstream jf(pathToJson);
+        json j;
+        jf >> j;
+        return j.value("entry", "");
+    }
+    catch (...) {
+        return "";
+    }
+}
+
+/* 工具：把 plugin.json 读成 Manifest 结构体 */
+static PluginManifest loadManifest(const std::string& pathToJson)
+{
+    PluginManifest m{};
+    try {
+        std::ifstream jf(pathToJson);
+        json j;
+        jf >> j;
+        m.name = j.value("name", "");
+        m.version = j.value("version", "");
+        m.author = j.value("author", "");
+        m.entry = j.value("entry", "");
+        if (j.contains("commands") && j["commands"].is_array()) {
+            for (const auto& c : j["commands"]) {
+                Command cmd;
+                cmd.name = c.value("name", "");
+                cmd.description = c.value("description", "");
+                m.commands.push_back(cmd);
+            }
+        }
+    }
+    catch (...) { /* 无效清单返回空结构 */ }
+    return m;
+}
+/* ---------- 插件系统 ---------- */
+
+
+string pluginDir() {
+    return homeDir() + "\\.vsenv\\plugins";
+}
+
+static std::string pluginNameFromPath(const std::string& path)
+{
+    // 去掉末尾反斜杠/引号
+    std::string p = path;
+    if (!p.empty() && p.back() == '"') p.pop_back();
+    if (!p.empty() && (p.back() == '\\' || p.back() == '/')) p.pop_back();
+    size_t pos = p.find_last_of("/\\");
+    return (pos == std::string::npos) ? p : p.substr(pos + 1);
+}
+
+void installPlugin(const std::string& sourcePath, const L10N&)
+{
+    /* ---------- 1. 取插件目录名 ---------- */
+    std::string name = pluginNameFromPath(sourcePath);
+
+    /* ---------- 2. 已存在检查 ---------- */
+    for (const auto& pl : loadedPlugins)
+        if (pl.manifest.name == name) {
+            std::cerr << "插件 '" << name << "' 已加载，无需重复安装\n";
+            return;
+        }
+    std::string targetDir = pluginDir() + "\\" + name;
+    if (fileExists(targetDir)) {
+        std::cerr << "插件目录已存在，请先移除\n";
+        return;
+    }
+
+    /* ---------- 3. 解压到临时区 ---------- */
+    std::string tempDir = pluginDir() + "\\_tmp_" + name;
+    if (fileExists(tempDir)) system(("rmdir /s /q \"" + tempDir + "\"").c_str());
+    _mkdir(tempDir.c_str());
+
+    if (isZip(sourcePath)) {
+        std::string cmd = "powershell -Command \"Expand-Archive -Path '" +
+            sourcePath + "' -DestinationPath '" + tempDir + "' -Force\"";
+        system(cmd.c_str());
+    }
+    else {
+        std::string cmd = "xcopy \"" + sourcePath + "\" \"" + tempDir +
+            "\\\" /E /I /H /Y /Q";
+        system(cmd.c_str());
+    }
+
+    /* ---------- 4. 读取元数据 ---------- */
+    std::string metaFile = tempDir + "\\plugin.json";
+    if (!fileExists(metaFile)) {
+        system(("rmdir /s /q \"" + tempDir + "\"").c_str());
+        throw std::runtime_error("缺少 plugin.json，无法获取插件信息");
+    }
+    json meta;
+    std::ifstream mf(metaFile);
+    mf >> meta;
+    mf.close();
+    std::string pName = meta.value("name", name);
+    std::string pVersion = meta.value("version", "unknown");
+    std::string pEntry = meta.value("entry", pName + ".dll");
+
+    /* ---------- 5. 交互确认 ---------- */
+    std::cout << "VSenv Plugin System " << VSENV_VERSION << "\n"
+        << "加载元数据中...\n"
+        << pName << " " << pVersion << "\n"
+        << "是否安装插件 " << pName << " (Y/n):";
+    std::string ans;
+    std::getline(std::cin, ans);
+    if (!ans.empty() && (ans[0] == 'n' || ans[0] == 'N')) {
+        system(("rmdir /s /q \"" + tempDir + "\"").c_str());
+        std::cout << "已取消安装\n";
+        return;
+    }
+
+    /* ---------- 6. 正式安装 ---------- */
+    std::cout << "安装中 ";
+    // 简单计数：先算总文件
+    int total = 0;
+    WIN32_FIND_DATAA fd;
+    HANDLE hFind = FindFirstFileA((tempDir + "\\*").c_str(), &fd);
+    if (hFind != INVALID_HANDLE_VALUE) {
+        do { if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) ++total; } while (FindNextFileA(hFind, &fd));
+        FindClose(hFind);
+    }
+    // 复制并实时显示
+    int copied = 0;
+    std::string copyCmd = "xcopy \"" + tempDir + "\" \"" + targetDir +
+        "\\\" /E /I /H /Y /Q";
+    system(copyCmd.c_str());          // 实际复制（/Q 不刷屏）
+    copied = total;                   // 简化：复制后全部算完成
+    std::cout << "(" << copied << "/" << total << ")\n";
+
+    /* ---------- 7. 配置 & 设置入口 ---------- */
+    std::cout << "配置中\n"
+        << "设置 " << pEntry << "\n";
+
+    /* ---------- 8. 清理临时 ---------- */
+    system(("rmdir /s /q \"" + tempDir + "\"").c_str());
+    std::cout << "插件 '" << pName << "' 安装成功\n";
+}
+
+void loadPlugins() {
+    string base = pluginDir();
+    if (!fileExists(base)) return;
+
+    WIN32_FIND_DATAA fd;
+    HANDLE h = FindFirstFileA((base + "\\*").c_str(), &fd);
+    if (h == INVALID_HANDLE_VALUE) return;
+
+    do {
+        if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+            string name = fd.cFileName;
+            if (name == "." || name == "..") continue;
+
+            string dir = base + "\\" + name;
+            string manifestPath = dir + "\\plugin.json";
+            string dllPath = dir + "\\" + getManifestEntry(manifestPath); // 读取 entry 字段
+
+            if (!fileExists(dllPath)) continue;
+
+            HMODULE hMod = LoadLibraryA(dllPath.c_str());
+            if (!hMod) continue;
+
+            Plugin plugin{ dir, loadManifest(manifestPath), hMod };
+            loadedPlugins.push_back(plugin);
+
+            // 注册命令
+            using RegFunc = void(*)(std::unordered_map<std::string, std::function<int(int, char**)>>&);
+            RegFunc reg = (RegFunc)GetProcAddress(plugin.hModule, "RegisterCommands");
+            if (reg) {
+                reg(plugin.commands);                 // DLL 往这张表里填
+                for (auto& [name, fn] : plugin.commands)
+                    globalCommands[name] = fn;        // 合并到全局表
+            }
+        }
+    } while (FindNextFileA(h, &fd));
+    FindClose(h);
+}
+
+
 // --------------- 用法字符串 ---------------
 void showUsage()
 {
@@ -182,23 +413,31 @@ void showUsage()
 
     std::cerr << "\n";
     title(); std::cerr << "用法：\n"; rst();
+    std::cerr << ""; title(); std::cerr << " [推荐]"; rst(); cmd(); std::cerr << "vsenv f"; rst(); std::cerr << "\t\t\t\t\t交互模式启动实例\n";
+    title(); std::cerr << " 基础功能 =======================================================================================\n"; rst();
     cmd();   std::cerr << "  vsenv --version"; rst(); std::cerr << "\t\t\t\t显示版本信息\n";
     cmd();   std::cerr << "  vsenv create"; rst(); std::cerr << " <实例名> [路径] \n";
     cmd();   std::cerr << "  vsenv start";  rst(); std::cerr << "  <实例名> ";
-    opt();   std::cerr << "[--host] [--mac] [--proxy <url>] [--sandbox] [--fake-hw]"; rst(); std::cerr << "\n";
-    std::cerr << "  "; title(); std::cerr << "[推荐]"; rst(); cmd(); std::cerr << "vsenv f"; rst(); std::cerr << "\t\t\t\t\t交互模式启动实例\n";
+        opt();   std::cerr << "[--host] [--mac] [--proxy <url>] [--sandbox] [--fake-hw]"; rst(); std::cerr << "\n";
     cmd();   std::cerr << "  vsenv stop";   rst(); std::cerr << "   <实例名> \n";
     cmd();   std::cerr << "  vsenv remove"; rst(); std::cerr << " <实例名> \n";
+    cmd();   std::cerr << "  vsenv list"; rst(); std::cerr << "\t\t\t\t\t列出全部实例\n";
+    title(); std::cerr << " 注册协议 =======================================================================================\n"; rst();
     cmd();   std::cerr << "  vsenv regist"; rst(); std::cerr << " <实例名>\t\t\t\t将 vscode:// 协议重定向到此实例\n";
     cmd();   std::cerr << "  vsenv regist-guard"; rst(); std::cerr << " <实例名>\t\t\t守护 vscode:// 协议不被篡改（需管理员权限）\n";
     cmd();   std::cerr << "  vsenv logoff"; rst(); std::cerr << "\t\t\t\t\t恢复默认的 vscode:// 协议处理程序\n";
     cmd();   std::cerr << "  vsenv rest"; rst(); std::cerr << " <路径>\t\t\t\t手动重建 vscode:// 协议（支持拖拽带双引号的路径）\n";
+    title(); std::cerr << " 安装VSCode插件 =================================================================================\n"; rst();
     cmd();   std::cerr << "  vsenv extension"; rst(); std::cerr << " <实例名> <扩展ID>\t\t安装单个扩展\n";
     cmd();   std::cerr << "  vsenv extension "; rst(); std::cerr << "<实例名> "; cmd(); std::cerr << "import"; rst(); std::cerr << " <列表文件>\t批量安装\n";
     cmd();   std::cerr << "  vsenv extension "; rst(); std::cerr << "<实例名> "; cmd(); std::cerr << "list";   rst(); std::cerr << "\t\t列出已装扩展\n";
-    cmd();   std::cerr << "  vsenv list"; rst(); std::cerr << "\t\t\t\t\t列出全部实例\n";
+    title(); std::cerr << " 导入导出 =======================================================================================\n"; rst();
     cmd();   std::cerr << "  vsenv export"; rst(); std::cerr << " <实例名> <导出路径>\t\t导出实例\n";
     cmd();   std::cerr << "  vsenv import"; rst(); std::cerr << " <配置文件> [新实例名]\t\t导入实例\n";
+    title(); std::cerr << " VSenv插件 ======================================================================================\n"; rst();
+    cmd();   std::cerr << "  vsenv plugin install -i ";     rst(); std::cerr << "<路径>\t安装本地插件\n";
+    cmd();   std::cerr << "  vsenv plugin remove ";     rst(); std::cerr << "<插件名>\t卸载插件\n";
+    cmd();   std::cerr << "  vsenv plugin list";     rst(); std::cerr << "\t\t\t列出已安装插件\n";
     std::cerr << "\n";
     title(); std::cerr << "全局选项：\n"; rst();
     opt();   std::cerr << "  --lang <en|cn>"; rst() ; std::cerr << "   设置界面语言，默认为 \"en\"。\n"; rst();
@@ -216,10 +455,7 @@ void showUsage()
     std::cerr << "\n";
     url();   std::cerr << "更多帮助：https://dhjs0000.github.io/VSenv/helps.html\n"; rst();
 }
-/* =========== 工具函数 =========== */
-bool fileExists(const std::string& path);
-string rootDir(const string& name);
-string homeDir();
+
 void create(const string& name, const string& customPath, const L10N& L);
 
 long long getFileSize(const string& filename) {
@@ -1417,8 +1653,20 @@ void listExtensions(const string& name, const L10N& L)
     }
 }
 
+
+bool isValidCommand(const std::string& cmd) {
+    static const std::vector<std::string> validCommands = {
+        "create", "start", "remove", "regist", "regist-guard", "extension", "export", "import"
+    };
+    return std::find(validCommands.begin(), validCommands.end(), cmd) == validCommands.end();
+}
+
 /* =========== 入口 =========== */
 int main(int argc, char** argv) {
+    if (!fileExists(pluginDir())) _mkdir(pluginDir().c_str());
+    loadPlugins();
+    //if (globalCommands.empty())
+        //std::cout << "[PLUGIN] no commands registered!\n";
     printBanner();
     L10N lang = EN;
     bool randomHost = false, randomMac = false;
@@ -1445,10 +1693,21 @@ int main(int argc, char** argv) {
     if (argc < 2)
     {
         showUsage();
+        if (!loadedPlugins.empty()) {
+            con::setColor(con::YELLOW);
+            std::cout << "已安装插件：\n";
+            con::setColor(con::GREEN);
+            for (const auto& pl : loadedPlugins)
+                std::cout << "  " << pl.manifest.name << "\n";
+            con::reset();
+        }
         return 1;
     }
     // ============================== 不需要实例名称的 ==============================
     string cmd = argv[1];
+    if (globalCommands.count(cmd)) {
+        return globalCommands[cmd](argc - 1, argv + 1);   // 跳过程序名
+    }
     if (cmd == "--version") {
         return 0;
     }
@@ -1505,96 +1764,144 @@ int main(int argc, char** argv) {
         interactiveMode(lang);
         return 0;
     }
+    else if (cmd == "plugin") {
+        if (argc >= 4 && strcmp(argv[2], "remove") == 0) {
+            std::string name = argv[3];
+            std::string target = pluginDir() + "\\" + name;
+
+            // 检查插件是否存在
+            if (!fileExists(target)) {
+                std::cerr << "插件 '" << name << "' 不存在，无法卸载。\n";
+                return 1;
+            }
+
+            // 用户确认
+            std::cout << "确认卸载插件 '" << name << "' 吗？（y/N）: ";
+            std::string ans;
+            std::getline(std::cin, ans);
+            if (ans.empty() || (ans[0] != 'y' && ans[0] != 'Y')) {
+                std::cout << "已取消卸载。\n";
+                return 0;
+            }
+
+            // 删除插件目录
+            system(("rmdir /s /q \"" + target + "\"").c_str());
+            std::cout << "插件 '" << name << "' 已卸载。\n如果提示拒绝访问，请再卸载一遍。\n";
+            return 0;
+        }
+        else if (argc >= 4 && strcmp(argv[2], "install") == 0 && strcmp(argv[3], "-i") == 0 && argc >= 5) {
+            installPlugin(argv[4], lang);
+            return 0;
+        }
+        else if (argc >= 3 && strcmp(argv[2], "list") == 0) {
+            if (loadedPlugins.empty()) {
+                std::cout << "暂无已安装插件\n";
+                return 0;
+            }
+            std::cout << "VSenv Plugin System " << VSENV_VERSION << "\n已安装插件：\n";
+            for (const auto& pl : loadedPlugins) {
+                std::cout << "  - " << pl.manifest.name
+                    << "  v" << pl.manifest.version
+                    << "  (" << pl.manifest.author << ")\n";
+            }
+            return 0;
+        }
+        cerr << "用法: vsenv plugin install -i <插件文件或文件夹>\n";
+        cerr << "用法: vsenv plugin remove     <插件名>\n";
+        cerr << "用法: vsenv plugin list\n";
+        return 1;
+    }
 
     if (argc < 3) {
-        cerr << "错误：需要实例名称\n";
+        if (isValidCommand(cmd)) {
+            cerr << "无效命令 '" << cmd << "'";
+            return 1;
+        } else
+            cerr << "错误：需要实例名称\n";
         return 1;
     }
-    // =============================== 需要实例名称的 ===============================
-    string name = argv[2];
-    if (cmd == "create")
-    {
-
-        string custom;
-        if (argc >= 4 && argv[3][0] != '-')   // 不是开关就是路径
-            custom = argv[3];
-        create(name, custom, lang);
-    }
-    else if (cmd == "start") {
-
-        start(name, lang, randomHost, randomMac, proxy, useSandbox, useAppContainer, useWSB, fakeHW);
-    }
-    else if (cmd == "stop") {
-
-        stop(name, lang, argv[0]);
-    }
-    else if (cmd == "remove") {
-
-        remove(name, lang, argv[0]);
-    }
-    else if (cmd == "regist") {
-
-        backupOriginalVSCodeHandler();   // 先备份
-        if (registVSCodeProtocol(name)) {
-            printf(lang.registOK.c_str(), name.c_str());
-        }
-        else {
-            cerr << "注册失败\n";
-        }
-    }
-    else if (cmd == "regist-guard") {   // 新增
-
-        guardRegist(name, lang);
-    }
-    else if (cmd == "extension") {
-        if (argc < 3) {
-            cerr << "用法:\n"
-                "  vsenv extension <实例名> <扩展ID>          # 安装单个扩展\n"
-                "  vsenv extension <实例名> import <列表文件> # 批量安装\n"
-                "  vsenv extension <实例名> list             # 列出已装扩展\n";
-            return 1;
-        }
-        string IName = argv[2];
-        string sub = argv[3];
-        if (sub == "import") {
-            if (argc < 5) { cerr << "需要指定列表文件\n"; return 1; }
-            importExtensions(IName, argv[4], lang);
-        }
-        else if (sub == "list") {
-            if (argc < 4) { cerr << "需要指定实例名\n"; return 1; }
-            listExtensions(IName, lang);
-        }
-        else {
-            // 保持原有单扩展安装逻辑
-            string extId = (argc >= 4) ? argv[3]
-                : "MS-CEINTL.vscode-language-pack-zh-hans";
-            installExtension(sub, extId, lang);
-        }
-    }
-    else if (cmd == "export") {
-        if (argc < 4) {
-            cerr << "错误：需要实例名称和导出路径\n";
-            cerr << "用法: vsenv export <实例名> <导出路径/文件名.vsenv>\n";
-            return 1;
-        }
-        string exportPath = argv[3];
-        exportInstance(name, exportPath, lang);
-    }
-    else if (cmd == "import") {
-        if (argc < 3) {
-            cerr << "错误：需要配置文件路径\n";
-            cerr << "用法: vsenv import <配置文件名.vsenv> [新实例名]\n";
-            return 1;
-        }
-        string importFile = argv[2];
-        string newName = (argc >= 4) ? argv[3] : "";
-        importInstance(importFile, newName, lang);
-    }
-
     else {
+        // =============================== 需要实例名称的 ===============================
+        string name = argv[2];
+        if (cmd == "create")
+        {
 
-        cerr << "无效命令 '" << cmd << "'";
-        return 1;
+            string custom;
+            if (argc >= 4 && argv[3][0] != '-')   // 不是开关就是路径
+                custom = argv[3];
+            create(name, custom, lang);
+        }
+        else if (cmd == "start") {
+
+            start(name, lang, randomHost, randomMac, proxy, useSandbox, useAppContainer, useWSB, fakeHW);
+        }
+        else if (cmd == "stop") {
+
+            stop(name, lang, argv[0]);
+        }
+        else if (cmd == "remove") {
+
+            remove(name, lang, argv[0]);
+        }
+        else if (cmd == "regist") {
+
+            backupOriginalVSCodeHandler();   // 先备份
+            if (registVSCodeProtocol(name)) {
+                printf(lang.registOK.c_str(), name.c_str());
+            }
+            else {
+                cerr << "注册失败\n";
+            }
+        }
+        else if (cmd == "regist-guard") {   // 新增
+
+            guardRegist(name, lang);
+        }
+        else if (cmd == "extension") {
+            if (argc < 3) {
+                cerr << "用法:\n"
+                    "  vsenv extension <实例名> <扩展ID>          # 安装单个扩展\n"
+                    "  vsenv extension <实例名> import <列表文件> # 批量安装\n"
+                    "  vsenv extension <实例名> list             # 列出已装扩展\n";
+                return 1;
+            }
+            string IName = argv[2];
+            string sub = argv[3];
+            if (sub == "import") {
+                if (argc < 5) { cerr << "需要指定列表文件\n"; return 1; }
+                importExtensions(IName, argv[4], lang);
+            }
+            else if (sub == "list") {
+                if (argc < 4) { cerr << "需要指定实例名\n"; return 1; }
+                listExtensions(IName, lang);
+            }
+            else {
+                // 保持原有单扩展安装逻辑
+                string extId = (argc >= 4) ? argv[3]
+                    : "MS-CEINTL.vscode-language-pack-zh-hans";
+                installExtension(sub, extId, lang);
+            }
+        }
+        else if (cmd == "export") {
+            if (argc < 4) {
+                cerr << "错误：需要实例名称和导出路径\n";
+                cerr << "用法: vsenv export <实例名> <导出路径/文件名.vsenv>\n";
+                return 1;
+            }
+            string exportPath = argv[3];
+            exportInstance(name, exportPath, lang);
+        }
+        else if (cmd == "import") {
+            if (argc < 3) {
+                cerr << "错误：需要配置文件路径\n";
+                cerr << "用法: vsenv import <配置文件名.vsenv> [新实例名]\n";
+                return 1;
+            }
+            string importFile = argv[2];
+            string newName = (argc >= 4) ? argv[3] : "";
+            importInstance(importFile, newName, lang);
+        }
+        
     }
     return 0;
 }

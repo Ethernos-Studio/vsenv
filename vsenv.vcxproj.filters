@@ -16,10 +16,16 @@
     <Filter Include="repo">
       <UniqueIdentifier>{090f8a76-3ed7-4709-815e-8b6d7fadfdf2}</UniqueIdentifier>
     </Filter>
+    <Filter Include="插件示例">
+      <UniqueIdentifier>{7f7a2577-557a-404b-aba8-43e0b25d0127}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="main.cpp">
       <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="hello.cpp">
+      <Filter>插件示例</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>

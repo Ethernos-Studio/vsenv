@@ -1,0 +1,13 @@
+{
+  "name": "hello",
+  "version": "1.0.0",
+  "author": "you",
+  "description": "Say Hello, World!",
+  "entry": "hello.dll",
+  "commands": [
+    {
+      "name": "hello",
+      "description": "Print Hello, World!"
+    }
+  ]
+}
