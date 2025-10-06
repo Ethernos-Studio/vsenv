@@ -1811,6 +1811,16 @@ int main(int argc, char** argv) {
         cerr << "用法: vsenv plugin list\n";
         return 1;
     }
+    else if (cmd == "nia") {
+        cout << R"(
+            /\_/\
+            (     \__
+            \, , )
+            || ||   
+      ..."今日は猫だったの？"...            
+)";
+        return 0;
+    }
 
     if (argc < 3) {
         if (isValidCommand(cmd)) {

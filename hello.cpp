@@ -1,3 +1,10 @@
+/*
+这是一个插件示例
+为什么这个工具要出插件功能？我也不知道喵
+
+*/
+
+
 #include <windows.h>
 #include <iostream>
 #include <unordered_map>
