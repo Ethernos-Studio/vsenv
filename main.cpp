@@ -1656,7 +1656,7 @@ void listExtensions(const string& name, const L10N& L)
 
 bool isValidCommand(const std::string& cmd) {
     static const std::vector<std::string> validCommands = {
-        "create", "start", "remove", "regist", "regist-guard", "extension", "export", "import"
+        "create", "start", "remove", "regist", "regist-guard", "extension", "export", "import", "stop"
     };
     return std::find(validCommands.begin(), validCommands.end(), cmd) == validCommands.end();
 }
