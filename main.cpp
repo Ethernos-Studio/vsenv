@@ -844,9 +844,69 @@ static void saveOtherPathEntry(const std::string& name, const std::string& real)
 }
 
 /* ===========  =========== */
+
+std::vector<std::string> bannerL2Text = {
+    "  追随马斯克的步伐，坚持免费开源",
+    "  ——鲁迅说过",
+    "  本软件由高中生晚自习驱动",
+    "  官方唯一指定 Bug：忘记加 stop",
+    "  吕布骑草履虫，也能跑全速",
+    "  本软件已适配 Windows XP（并没有",
+    "  本软件已适配 Windows 12（吹牛",
+    "  买到就是被骗，骗完还想用",
+    "  城墙自己长出了软件仓库",
+    "  吕布换上了触控屏的方天画戟",
+    "  本软件不含任何喵元素（喵",
+    "  本软件不含任何 Bug（特征",
+    "  本软件不含任何 Electron（但 VS Code 含",
+    "  本软件不含任何广告（但含彩蛋",
+    "  本软件不含任何收费（但含神秘链接 https://www.bilibili.com/video/BV1GJ411x7h7/",
+    "  本软件不含任何停止（因为validCommands忘记加 stop",
+    "  死了都要try！不catch到异常不痛快！Bug有多深，只有这样，才不用重来。",
+    "  Do you have no egg?", // CCF CSP-S-1 2025
+    "  闭嘴！如果你激怒了我，我会使用 check(12180211) 让你 have no egg!" // CCF CSP-S-1 2025
+    "  sovle不需要加上n,k", // CCF CSP-S-1 2025
+    "  第五十七回——真假33题" // CCF CSP-J-1 2025
+    "  精通 C++：从 Hello World 到 sizeof('a') == 1",
+    "  不会修 Clang 的 Bug 也敢写简历上？",
+    "  不可以，总司令（NO 能拿 45 分）", // CCF CSP-S-2 2022
+    "  #define int long long 保平安",
+    "  杀一个程序员不需要用枪，改三次需求即可",
+    "  Oct 31 == Dec 25（八进制与十进制）",
+    "  程序员不关心警告，只关心错误",
+    "  C++：多继承，富二代，对象多",
+    "  0 和 1 的纠缠，是程序员的情书",
+    "  代码不规范，提交两行泪",
+    "  膜拜大佬，RP++（虽然并没什么用）", // SD CSP-J2023
+    "  提交代码不写注释？",
+    "  试试把 freopen 注释掉？", // SD CSP-J2023
+    "  代码 0 错误 0 警告，但跑不通",
+    "  这里本应有个段子，但它 Segment Fault 了",
+    "  珍惜头发，远离内存泄漏",
+    "  我敢用 std::vector，你敢用吗？",
+    "  内存泄漏？那叫持久化对象！",
+    "  内存泄漏怎么处理？多来点内存就行！",
+    "  编译错误：expected ';' before '}' token",
+    "  又双叒叕是数组越界！",
+    "  CSP 考场现状：freopen 救了多少人",
+    "  时间复杂度：O(能过)",
+    "  空间复杂度：O(不MLE)",
+    "  你以为我在写代码？其实我在debug",
+    "  std::endl 爱好者 vs '\\n' 性能党",
+    "  三目运算符？不，我选择 if-else 保平安",
+    "  const 是什么？能吃吗？",
+    "  指针的指针的指针...我晕了",
+    "  模板元编程：编译器，你辛苦了",
+};
+extern std::vector<std::string> bannerL2Text;
 void printBanner() {
+    static std::mt19937 rng(
+        static_cast<unsigned>(std::chrono::steady_clock::now().time_since_epoch().count()));
+    std::uniform_int_distribution<std::size_t> dist(0, bannerL2Text.size() - 1);
+    const std::string& line2 = bannerL2Text[dist(rng)];
     cout << "=======================================\n";
     cout << "  本软件完全免费开源，买到就是被骗啦！\n";
+    cout << line2 << '\n';
     cout << "  https://github.com/dhjs0000/vsenv\n";
     cout << "=======================================\n\n";
     cout << " VSenv " << VSENV_VERSION << " by " << VSENV_AUTHOR << " (" << VSENV_LICENSE << ")\n\n";

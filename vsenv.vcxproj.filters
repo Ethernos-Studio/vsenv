@@ -41,6 +41,12 @@
     <None Include="README_EN.md">
       <Filter>repo</Filter>
     </None>
+    <None Include="README_JP_Nanjasorya.md">
+      <Filter>repo</Filter>
+    </None>
+    <None Include="README_JP_F.md">
+      <Filter>repo</Filter>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <Text Include="LICENSE.txt">

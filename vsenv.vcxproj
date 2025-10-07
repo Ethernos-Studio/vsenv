@@ -133,10 +133,14 @@
   <ItemGroup>
     <ClCompile Include="hello.cpp" />
     <ClCompile Include="main.cpp" />
+    <None Include="README_JP_F.md">
+      <FileType>Document</FileType>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <None Include="README.md" />
     <None Include="README_EN.md" />
+    <None Include="README_JP_Nanjasorya.md" />
     <None Include="vsenv-net.ps1" />
     <None Include="vsenv-stop.ps1" />
   </ItemGroup>
