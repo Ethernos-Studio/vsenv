@@ -848,7 +848,6 @@ static void saveOtherPathEntry(const std::string& name, const std::string& real)
 std::vector<std::string> bannerL2Text = {
     "  追随马斯克的步伐，坚持免费开源",
     "  ——鲁迅说过",
-    "  本软件由高中生晚自习驱动",
     "  官方唯一指定 Bug：忘记加 stop",
     "  吕布骑草履虫，也能跑全速",
     "  本软件已适配 Windows XP（并没有",
@@ -865,11 +864,14 @@ std::vector<std::string> bannerL2Text = {
     "  死了都要try！不catch到异常不痛快！Bug有多深，只有这样，才不用重来。",
     "  Do you have no egg?", // CCF CSP-S-1 2025
     "  闭嘴！如果你激怒了我，我会使用 check(12180211) 让你 have no egg!" // CCF CSP-S-1 2025
+    "  闭嘴！如果你激怒了我，我会使用 Visual Studio 让你 无效的预处理器命令 在 README.md!"
     "  sovle不需要加上n,k", // CCF CSP-S-1 2025
-    "  第五十七回——真假33题" // CCF CSP-J-1 2025
+    "  你说得对，但是 CSP-J/S 2025 是由 CCF 草台班子委员会开发的一款报错游戏，玩家需要在游戏中猛击 k 次以 cnt_broken eggs，并且避开重复两个第 33 题的风险。你需要判断谁是精明谁是糊涂，并且若你没有 have no egg 便会在游戏最后三分钟提示你 solve 函数没有传参和没有定义 n和 k 变量（没有分号）。意识到这一点玩家都会想起来家里斥巨资开的工厂有一个生产线有缺陷，只好花了一个无符号 32 位整数能存的钱并做了道黑题才修复了生产线。",// CCF CSP-J/S-1 2025
+    "  第五十七回——真假33题", // CCF CSP-J-1 2025
     "  精通 C++：从 Hello World 到 sizeof('a') == 1",
     "  不会修 Clang 的 Bug 也敢写简历上？",
     "  不可以，总司令（NO 能拿 45 分）", // CCF CSP-S-2 2022
+    "  若你没有将and or xor连词成句将会面临失去4，17，21，32分的风险", // CCF CSP-S-2 2024
     "  #define int long long 保平安",
     "  杀一个程序员不需要用枪，改三次需求即可",
     "  Oct 31 == Dec 25（八进制与十进制）",
@@ -879,7 +881,7 @@ std::vector<std::string> bannerL2Text = {
     "  代码不规范，提交两行泪",
     "  膜拜大佬，RP++（虽然并没什么用）", // SD CSP-J2023
     "  提交代码不写注释？",
-    "  试试把 freopen 注释掉？", // SD CSP-J2023
+    "  丸辣，忘记把 freopen 注释解除掉了！", // SD CSP-J2023
     "  代码 0 错误 0 警告，但跑不通",
     "  这里本应有个段子，但它 Segment Fault 了",
     "  珍惜头发，远离内存泄漏",
