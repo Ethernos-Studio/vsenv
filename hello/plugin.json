@@ -8,6 +8,7 @@
     {
       "name": "hello",
       "description": "Print Hello, World!"
-    }
+    },
+  "SHA256" : "9b6cb79535833b3c3d1e72432f6e1037c4df176d8593439d6df144928714ce43"
   ]
 }

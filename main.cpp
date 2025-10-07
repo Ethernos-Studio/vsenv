@@ -430,14 +430,14 @@ void showUsage()
     title(); std::cerr << " 安装VSCode插件 =================================================================================\n"; rst();
     cmd();   std::cerr << "  vsenv extension"; rst(); std::cerr << " <实例名> <扩展ID>\t\t安装单个扩展\n";
     cmd();   std::cerr << "  vsenv extension "; rst(); std::cerr << "<实例名> "; cmd(); std::cerr << "import"; rst(); std::cerr << " <列表文件>\t批量安装\n";
-    cmd();   std::cerr << "  vsenv extension "; rst(); std::cerr << "<实例名> "; cmd(); std::cerr << "list";   rst(); std::cerr << "\t\t列出已装扩展\n";
+    cmd();   std::cerr << "  vsenv extension "; rst(); std::cerr << "<实例名> "; cmd(); std::cerr << "list";   rst(); std::cerr << "\t\t\t列出已装扩展\n";
     title(); std::cerr << " 导入导出 =======================================================================================\n"; rst();
     cmd();   std::cerr << "  vsenv export"; rst(); std::cerr << " <实例名> <导出路径>\t\t导出实例\n";
     cmd();   std::cerr << "  vsenv import"; rst(); std::cerr << " <配置文件> [新实例名]\t\t导入实例\n";
     title(); std::cerr << " VSenv插件 ======================================================================================\n"; rst();
-    cmd();   std::cerr << "  vsenv plugin install -i ";     rst(); std::cerr << "<路径>\t安装本地插件\n";
-    cmd();   std::cerr << "  vsenv plugin remove ";     rst(); std::cerr << "<插件名>\t卸载插件\n";
-    cmd();   std::cerr << "  vsenv plugin list";     rst(); std::cerr << "\t\t\t列出已安装插件\n";
+    cmd();   std::cerr << "  vsenv plugin install -i ";     rst(); std::cerr << "<路径>\t\t安装本地插件\n";
+    cmd();   std::cerr << "  vsenv plugin remove ";     rst(); std::cerr << "<插件名>\t\t\t卸载插件\n";
+    cmd();   std::cerr << "  vsenv plugin list";     rst(); std::cerr << "\t\t\t\t列出已安装插件\n";
     std::cerr << "\n";
     title(); std::cerr << "全局选项：\n"; rst();
     opt();   std::cerr << "  --lang <en|cn>"; rst() ; std::cerr << "   设置界面语言，默认为 \"en\"。\n"; rst();
@@ -1213,7 +1213,7 @@ std::vector<std::pair<std::string, std::string>> enumerateInstances()
     return res;
 }
 
-void create(const string& name, const string& customPath, const L10N& L)
+void create(const string& name, const string& customPath, const bool& isDownload, const L10N& L)
 {
     string dir;
     if (!customPath.empty())
@@ -1734,6 +1734,7 @@ int main(int argc, char** argv) {
     bool randomHost = false, randomMac = false;
     string proxy;
     bool useSandbox = false, useAppContainer = false, useWSB = false, fakeHW = false, rest = false;
+    bool download;
 
     for (int i = 1; i < argc; ++i) {
         if (strcmp(argv[i], "--lang") == 0 && i + 1 < argc) {
@@ -1750,6 +1751,7 @@ int main(int argc, char** argv) {
         else if (strcmp(argv[i], "--wsb") == 0) cerr << "WSB支持已在正式版被删除，请使用sandbox\n";
         else if (strcmp(argv[i], "--fake-hw") == 0) fakeHW = true;
         else if (strcmp(argv[i], "--augment") == 0) cerr << "agument已在正式版被删除，请使用regist功能\n";
+        else if (strcmp(argv[i], "--download") == 0) download = true;
     }
 
     if (argc < 2)
@@ -1772,6 +1774,13 @@ int main(int argc, char** argv) {
     }
     if (cmd == "--version") {
         return 0;
+    }
+    else if (cmd == "--echo") {
+        static std::mt19937 rng(
+            static_cast<unsigned>(std::chrono::steady_clock::now().time_since_epoch().count()));
+        std::uniform_int_distribution<std::size_t> dist(0, bannerL2Text.size() - 1);
+        const std::string& line2 = bannerL2Text[dist(rng)];
+        cout << line2 << "\n";
     }
     else if (cmd == "rest") {
         printBanner();
@@ -1901,7 +1910,9 @@ int main(int argc, char** argv) {
             string custom;
             if (argc >= 4 && argv[3][0] != '-')   // 不是开关就是路径
                 custom = argv[3];
-            create(name, custom, lang);
+            
+            create(name, custom, download, lang);
+
         }
         else if (cmd == "start") {
 
