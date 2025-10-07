@@ -4,12 +4,12 @@
     该程序允许用户创建、启动、停止和删除独立的 VS Code 实例，
     每个实例拥有独立的用户数据和扩展目录。
 
-    版本：1.3.0
+    版本：1.4.0
 */
 
 // 常量定义
 
-#define VSENV_VERSION "1.3.0"
+#define VSENV_VERSION "1.4.0"
 #define VSENV_AUTHOR "dhjs0000"
 #define VSENV_LICENSE "AGPLv3.0"
 
@@ -863,8 +863,8 @@ std::vector<std::string> bannerL2Text = {
     "  本软件不含任何停止（因为validCommands忘记加 stop",
     "  死了都要try！不catch到异常不痛快！Bug有多深，只有这样，才不用重来。",
     "  Do you have no egg?", // CCF CSP-S-1 2025
-    "  闭嘴！如果你激怒了我，我会使用 check(12180211) 让你 have no egg!" // CCF CSP-S-1 2025
-    "  闭嘴！如果你激怒了我，我会使用 Visual Studio 让你 无效的预处理器命令 在 README.md!"
+    "  闭嘴！如果你激怒了我，我会使用 check(12180211) 让你 have no egg!", // CCF CSP-S-1 2025
+    "  闭嘴！如果你激怒了我，我会使用 Visual Studio 让你 无效的预处理器命令 在 README.md!",
     "  sovle不需要加上n,k", // CCF CSP-S-1 2025
     //"  你说得对，但是 CSP-J/S 2025 是由 CCF 草台班子委员会开发的一款报错游戏，玩家需要在游戏中猛击 k 次以 cnt_broken eggs，并且避开重复两个第 33 题的风险。你需要判断谁是精明谁是糊涂，并且若你没有 have no egg 便会在游戏最后三分钟提示你 solve 函数没有传参和没有定义 n和 k 变量（没有分号）。意识到这一点玩家都会想起来家里斥巨资开的工厂有一个生产线有缺陷，只好花了一个无符号 32 位整数能存的钱并做了道黑题才修复了生产线。",// CCF CSP-J/S-1 2025
     "  第五十七回——真假33题", // CCF CSP-J-1 2025
@@ -908,8 +908,8 @@ void printBanner() {
     const std::string& line2 = bannerL2Text[dist(rng)];
     cout << "=======================================\n";
     cout << "  本软件完全免费开源，买到就是被骗啦！\n";
-    cout << line2 << '\n';
-    cout << "  https://github.com/dhjs0000/vsenv\n";
+    cout << "  回声洞: \n" << line2 << '\n';
+    cout << "  仓库：  https://github.com/dhjs0000/vsenv\n  回声洞投稿：https://github.com/dhjs0000/vsenv/issues\n";
     cout << "=======================================\n\n";
     cout << " VSenv " << VSENV_VERSION << " by " << VSENV_AUTHOR << " (" << VSENV_LICENSE << ")\n\n";
     cout << " VSenv (C) 2025 by dhjs0000，为爱发电中～\n\n";
