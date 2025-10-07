@@ -4,12 +4,12 @@
     该程序允许用户创建、启动、停止和删除独立的 VS Code 实例，
     每个实例拥有独立的用户数据和扩展目录。
 
-    版本：1.4.0
+    版本：1.5.0
 */
 
 // 常量定义
 
-#define VSENV_VERSION "1.4.0"
+#define VSENV_VERSION "1.5.0"
 #define VSENV_AUTHOR "dhjs0000"
 #define VSENV_LICENSE "AGPLv3.0"
 
@@ -438,6 +438,7 @@ void showUsage()
     cmd();   std::cerr << "  vsenv plugin install -i ";     rst(); std::cerr << "<路径>\t\t安装本地插件\n";
     cmd();   std::cerr << "  vsenv plugin remove ";     rst(); std::cerr << "<插件名>\t\t\t卸载插件\n";
     cmd();   std::cerr << "  vsenv plugin list";     rst(); std::cerr << "\t\t\t\t列出已安装插件\n";
+    cmd();   std::cerr << "  vsenv pm";     rst(); std::cerr << "\t\t\t\t\t插件包管理器\n";
     std::cerr << "\n";
     title(); std::cerr << "全局选项：\n"; rst();
     opt();   std::cerr << "  --lang <en|cn>"; rst() ; std::cerr << "   设置界面语言，默认为 \"en\"。\n"; rst();
@@ -1895,6 +1896,9 @@ int main(int argc, char** argv) {
 
     if (argc < 3) {
         if (isValidCommand(cmd)) {
+            if (cmd == "pm") {
+                cerr << "pm需要安装：https://github.com/dhjs0000/vsenv-plugins/releases/ ，在这里面搜索pm，找到最新版本下载后放到vsenv目录，使用vsenv plugin install -i安装\n";
+            }
             cerr << "无效命令 '" << cmd << "'";
             return 1;
         } else

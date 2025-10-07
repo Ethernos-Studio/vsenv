@@ -21,6 +21,10 @@ void RegisterCommands(std::unordered_map<std::string,
                 std::cout << "Hello, World!\n";
                 return 0;
             }
+            if (argv[1] == "--cn") {
+                std::cout << "ÊÀ½çÄãºÃ£¡";
+                return 0;
+            }
             std::cout << "Hello";
             for (int i = 1; i < argc; ++i) std::cout << " " << argv[i];
             std::cout << "!\n";
