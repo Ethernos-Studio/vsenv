@@ -179,6 +179,14 @@ bool fileExists(const std::string& path);
 string rootDir(const string& name);
 string homeDir();
 
+static std::string JoinPath(const std::string& a, const std::string& b)
+{
+    if (a.empty()) return b;
+    if (b.empty()) return a;
+    char sep = (a.find('/') != std::string::npos) ? '/' : '\\';
+    if (a.back() == sep) return a + b;
+    return a + sep + b;
+}
 
 struct Command {
     std::string name;
@@ -277,50 +285,62 @@ static std::string pluginNameFromPath(const std::string& path)
 void installPlugin(const std::string& sourcePath, const L10N&)
 {
     /* ---------- 1. 取插件目录名 ---------- */
+    std::cout << "1. 取插件目录名...";
     std::string name = pluginNameFromPath(sourcePath);
+    std::cout << "完成\n";
 
     /* ---------- 2. 已存在检查 ---------- */
+    std::cout << "2. 已存在检查...";
     for (const auto& pl : loadedPlugins)
         if (pl.manifest.name == name) {
             std::cerr << "插件 '" << name << "' 已加载，无需重复安装\n";
             return;
         }
-    std::string targetDir = pluginDir() + "\\" + name;
+    std::string targetDir = JoinPath(pluginDir(), name);
     if (fileExists(targetDir)) {
         std::cerr << "插件目录已存在，请先移除\n";
         return;
     }
+    std::cout << "完成\n";
 
-    /* ---------- 3. 解压到临时区 ---------- */
-    std::string tempDir = pluginDir() + "\\_tmp_" + name;
-    if (fileExists(tempDir)) system(("rmdir /s /q \"" + tempDir + "\"").c_str());
-    _mkdir(tempDir.c_str());
-
-    if (isZip(sourcePath)) {
-        std::string cmd = "powershell -Command \"Expand-Archive -Path '" +
-            sourcePath + "' -DestinationPath '" + tempDir + "' -Force\"";
-        system(cmd.c_str());
-    }
-    else {
-        std::string cmd = "xcopy \"" + sourcePath + "\" \"" + tempDir +
-            "\\\" /E /I /H /Y /Q";
-        system(cmd.c_str());
-    }
-
-    /* ---------- 4. 读取元数据 ---------- */
-    std::string metaFile = tempDir + "\\plugin.json";
-    if (!fileExists(metaFile)) {
+    /* ---------- 3. 统一解压 ---------- */
+    cout << "3. 解压到临时区...";
+    string tempDir = JoinPath(pluginDir(), "_tmp_" + name);
+    if (fileExists(tempDir))
         system(("rmdir /s /q \"" + tempDir + "\"").c_str());
-        throw std::runtime_error("缺少 plugin.json，无法获取插件信息");
+    std::filesystem::create_directories(tempDir);
+
+    /*  把任何东西都当成 zip 先解一把  */
+    string unzipCmd =
+        "powershell -NoProfile -Command \""
+        "Expand-Archive -LiteralPath '" + sourcePath +
+        "' -DestinationPath '" + tempDir +
+        "' -Force\"";
+    int ret = system(unzipCmd.c_str());
+    if (ret != 0) {               // 解压失败就不再继续
+        system(("rmdir /s /q \"" + tempDir + "\"").c_str());
+        cout << "解压失败，可能不是合法压缩包\n";
+        return;
+    }
+    cout << "完成\n";
+
+    /* ---------- 4. 直接在解压根目录找 plugin.json ---------- */
+    cout << "4. 读取元数据...";
+    string metaFile = JoinPath(tempDir, "plugin.json");
+    if (!fileExists(metaFile)) {          // 真·找不到
+        system(("rmdir /s /q \"" + tempDir + "\"").c_str());
+        cout << "缺少 plugin.json，无法获取插件信息\n";
+        return;
     }
     json meta;
-    std::ifstream mf(metaFile);
-    mf >> meta;
-    mf.close();
+    {
+        std::ifstream mf(metaFile);
+        mf >> meta;
+    }
     std::string pName = meta.value("name", name);
     std::string pVersion = meta.value("version", "unknown");
     std::string pEntry = meta.value("entry", pName + ".dll");
-
+    std::cout << "完成\n";
     /* ---------- 5. 交互确认 ---------- */
     std::cout << "VSenv Plugin System " << VSENV_VERSION << "\n"
         << "加载元数据中...\n"
@@ -333,24 +353,26 @@ void installPlugin(const std::string& sourcePath, const L10N&)
         std::cout << "已取消安装\n";
         return;
     }
-
     /* ---------- 6. 正式安装 ---------- */
+    std::cout << "5. 正式安装...";
     std::cout << "安装中 ";
     // 简单计数：先算总文件
     int total = 0;
-    WIN32_FIND_DATAA fd;
+    WIN32_FIND_DATAA fd{};
     HANDLE hFind = FindFirstFileA((tempDir + "\\*").c_str(), &fd);
     if (hFind != INVALID_HANDLE_VALUE) {
-        do { if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) ++total; } while (FindNextFileA(hFind, &fd));
+        do {
+            if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) ++total;
+        } while (FindNextFileA(hFind, &fd));
         FindClose(hFind);
     }
     // 复制并实时显示
-    int copied = 0;
-    std::string copyCmd = "xcopy \"" + tempDir + "\" \"" + targetDir +
+    std::string copyCmd =
+        "xcopy \"" + tempDir + "\" \"" + targetDir +
         "\\\" /E /I /H /Y /Q";
-    system(copyCmd.c_str());          // 实际复制（/Q 不刷屏）
-    copied = total;                   // 简化：复制后全部算完成
-    std::cout << "(" << copied << "/" << total << ")\n";
+    system(copyCmd.c_str());
+    std::cout << "(" << total << "/" << total << ")\n";
+    std::cout << "完成\n";
 
     /* ---------- 7. 配置 & 设置入口 ---------- */
     std::cout << "配置中\n"
@@ -1837,30 +1859,54 @@ int main(int argc, char** argv) {
         return 0;
     }
     else if (cmd == "plugin") {
-        if (argc >= 4 && strcmp(argv[2], "remove") == 0) {
-            std::string name = argv[3];
-            std::string target = pluginDir() + "\\" + name;
+        /* =======================  plugin remove  ======================= */
+    if (argc >= 4 && strcmp(argv[2], "remove") == 0) {
+        std::string targetName = argv[3];          // 用户输入的插件名
 
-            // 检查插件是否存在
-            if (!fileExists(target)) {
-                std::cerr << "插件 '" << name << "' 不存在，无法卸载。\n";
+        /* 1. 在已加载列表里找 manifest.name 完全匹配 */
+        auto it = std::find_if(loadedPlugins.begin(), loadedPlugins.end(),
+            [&](const Plugin& p) {
+                return p.manifest.name == targetName;
+            });
+
+        if (it == loadedPlugins.end()) {
+            std::cerr << "插件 '" << targetName << "' 不存在，无法卸载。\n";
+            return 1;
+        }
+
+        /* 2. 用户确认 */
+        std::cout << "确认卸载插件 '" << targetName << "' 吗？（y/N）: ";
+        std::string ans;
+        std::getline(std::cin, ans);
+        if (!ans.empty() && (ans[0] == 'y' || ans[0] == 'Y')) {
+            /* 3. 释放 DLL */
+            if (it->hModule) {
+                FreeLibrary(it->hModule);
+                it->hModule = nullptr;
+            }
+
+            /* 4. 从全局命令表删除该插件注册的所有命令 */
+            for (const auto& [cmdName, _] : it->commands)
+                globalCommands.erase(cmdName);
+
+            /* 5. 删目录 */
+            std::error_code ec;
+            std::filesystem::remove_all(it->path, ec);   // C++17
+            if (ec) {
+                std::cerr << "如果没有删除干净，自行删除" << it->path << "。";
                 return 1;
             }
 
-            // 用户确认
-            std::cout << "确认卸载插件 '" << name << "' 吗？（y/N）: ";
-            std::string ans;
-            std::getline(std::cin, ans);
-            if (ans.empty() || (ans[0] != 'y' && ans[0] != 'Y')) {
-                std::cout << "已取消卸载。\n";
-                return 0;
-            }
+            /* 6. 从内存列表移除 */
+            loadedPlugins.erase(it);
 
-            // 删除插件目录
-            system(("rmdir /s /q \"" + target + "\"").c_str());
-            std::cout << "插件 '" << name << "' 已卸载。\n如果提示拒绝访问，请再卸载一遍。\n";
-            return 0;
+            std::cout << "插件 '" << targetName << "' 已卸载。\n";
         }
+        else {
+            std::cout << "已取消卸载。\n";
+        }
+        return 0;
+    }
         else if (argc >= 4 && strcmp(argv[2], "install") == 0 && strcmp(argv[3], "-i") == 0 && argc >= 5) {
             installPlugin(argv[4], lang);
             return 0;

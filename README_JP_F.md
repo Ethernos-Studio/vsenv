@@ -1,4 +1,4 @@
-﻿# VSenv - VS Code オフラインインスタンスマネージャー
+﻿# VSenv - VS Code オフラインインスタンスマネージャー 
 
 ![License](https://img.shields.io/badge/License-AGPLv3.0-blue.svg )  
 ![Version](https://img.shields.io/badge/Version-1.0.0-green.svg )  

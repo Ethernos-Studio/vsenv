@@ -121,7 +121,8 @@
       <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <AdditionalIncludeDirectories>E:\source\repos\vsenv\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <LanguageStandard>stdcpp23</LanguageStandard>
+      <LanguageStandard>stdcpplatest</LanguageStandard>
+      <LanguageStandard_C>stdclatest</LanguageStandard_C>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -140,9 +141,6 @@
   <ItemGroup>
     <None Include="README.md" />
     <None Include="README_EN.md" />
-    <None Include="README_JP_Nanjasorya.md" />
-    <None Include="vsenv-net.ps1" />
-    <None Include="vsenv-stop.ps1" />
   </ItemGroup>
   <ItemGroup>
     <Text Include="LICENSE.txt" />

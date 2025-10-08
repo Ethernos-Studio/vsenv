@@ -29,19 +29,10 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <None Include="vsenv-net.ps1">
-      <Filter>资源文件</Filter>
-    </None>
-    <None Include="vsenv-stop.ps1">
-      <Filter>资源文件</Filter>
-    </None>
     <None Include="README.md">
       <Filter>repo</Filter>
     </None>
     <None Include="README_EN.md">
-      <Filter>repo</Filter>
-    </None>
-    <None Include="README_JP_Nanjasorya.md">
       <Filter>repo</Filter>
     </None>
     <None Include="README_JP_F.md">
