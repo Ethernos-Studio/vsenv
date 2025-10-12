@@ -4,6 +4,8 @@
 ![Version](https://img.shields.io/badge/Version-1.0.0-green.svg)
 ![Platform](https://img.shields.io/badge/Platform-Windows-lightgrey.svg)
 
+![Image](./images/vsenv.png)
+
 [English](./README_EN.md) | [中文](./README.md)
 
 ## 📖 目录
