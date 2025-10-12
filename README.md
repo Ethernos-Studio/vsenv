@@ -6,6 +6,10 @@
 
 ![Image](./images/vsenv.png)
 
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=dhjs0000/vsenv&type=Date)](https://www.star-history.com/#dhjs0000/vsenv&Date)
+
 [English](./README_EN.md) | [中文](./README.md)
 
 ## 📖 目录
