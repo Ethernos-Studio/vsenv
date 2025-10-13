@@ -4,12 +4,13 @@
     该程序允许用户创建、启动、停止和删除独立的 VS Code 实例，
     每个实例拥有独立的用户数据和扩展目录。
 
-    版本：1.5.0
+    版本：1.6.0
 */
 
 // 常量定义
 
-#define VSENV_VERSION "1.5.0"
+#define VSENV_VERSION "1.6.0"
+#define VSENV_DATE "2025-10-13"
 #define VSENV_AUTHOR "dhjs0000"
 #define VSENV_LICENSE "AGPLv3.0"
 
@@ -40,7 +41,7 @@
 #include <nlohmann/json.hpp> // 需要添加JSON库支持
 #include <tlhelp32.h>
 #include <psapi.h>
-
+#include <ctime>
 
 using json = nlohmann::json;
 static std::unordered_map<std::string, std::string> g_otherPath;
@@ -57,6 +58,10 @@ using std::string;
 using std::cout;
 using std::cerr;
 
+static bool g_debug = false;          // 全局调试模式
+#define DBG(...)  do { if (g_debug) { con::setColor(con::YELLOW); \
+                       std::cerr << "[DEBUG] " << __VA_ARGS__; \
+                       con::reset(); } } while(0)
 
 /* =========== 语言包 =========== */
 struct L10N {
@@ -383,43 +388,120 @@ void installPlugin(const std::string& sourcePath, const L10N&)
     std::cout << "插件 '" << pName << "' 安装成功\n";
 }
 
-void loadPlugins() {
-    string base = pluginDir();
-    if (!fileExists(base)) return;
+/* ---------- 插件系统 ---------- */
 
-    WIN32_FIND_DATAA fd;
+static void printWin32Error(const std::string& ctx, const std::string& path = "")
+{
+    DWORD ec = GetLastError();
+    char* buf = nullptr;
+    FormatMessageA(FORMAT_MESSAGE_ALLOCATE_BUFFER |
+        FORMAT_MESSAGE_FROM_SYSTEM |
+        FORMAT_MESSAGE_IGNORE_INSERTS,
+        nullptr, ec, 0, (LPSTR)&buf, 0, nullptr);
+    con::setColor(con::RED);
+    std::cerr << "\n[PLUGIN] " << ctx << " 失败\n";
+    if (!path.empty()) std::cerr << "  文件: " << path << "\n";
+    std::cerr << "  错误码: " << ec << " (" << (buf ? buf : "Unknown") << ")\n";
+    LocalFree(buf);
+    con::reset();
+}
+
+void loadPlugins()
+{
+    std::string base = pluginDir();
+    if (!fileExists(base))
+    {
+        // 插件目录不存在就不加载，静默返回
+        return;
+    }
+
+    WIN32_FIND_DATAA fd{};
     HANDLE h = FindFirstFileA((base + "\\*").c_str(), &fd);
-    if (h == INVALID_HANDLE_VALUE) return;
+    if (h == INVALID_HANDLE_VALUE)
+    {
+        printWin32Error("FindFirstFileA", base);
+        return;
+    }
 
-    do {
-        if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
-            string name = fd.cFileName;
-            if (name == "." || name == "..") continue;
+    do
+    {
+        if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
+            continue;          // 只要文件夹
 
-            string dir = base + "\\" + name;
-            string manifestPath = dir + "\\plugin.json";
-            string dllPath = dir + "\\" + getManifestEntry(manifestPath); // 读取 entry 字段
+        std::string name = fd.cFileName;
+        if (name == "." || name == "..")
+            continue;
 
-            if (!fileExists(dllPath)) continue;
+        std::string dir = base + "\\" + name;
+        std::string jsonPath = dir + "\\plugin.json";
+        if (!fileExists(jsonPath))
+        {
+            std::cerr << "\n[PLUGIN] 跳过目录（缺少 plugin.json）: " << dir << "\n";
+            continue;
+        }
 
-            HMODULE hMod = LoadLibraryA(dllPath.c_str());
-            if (!hMod) continue;
-
-            Plugin plugin{ dir, loadManifest(manifestPath), hMod };
-            loadedPlugins.push_back(plugin);
-
-            // 注册命令
-            using RegFunc = void(*)(std::unordered_map<std::string, std::function<int(int, char**)>>&);
-            RegFunc reg = (RegFunc)GetProcAddress(plugin.hModule, "RegisterCommands");
-            if (reg) {
-                reg(plugin.commands);                 // DLL 往这张表里填
-                for (auto& [name, fn] : plugin.commands)
-                    globalCommands[name] = fn;        // 合并到全局表
+        /* 1. 解析 manifest */
+        PluginManifest mf{};
+        try
+        {
+            mf = loadManifest(jsonPath);
+            if (mf.name.empty() || mf.entry.empty())
+            {
+                std::cerr << "\n[PLUGIN] 无效的 plugin.json（缺失 name 或 entry）: "
+                    << jsonPath << "\n";
+                continue;
             }
         }
+        catch (const std::exception& e)
+        {
+            std::cerr << "\n[PLUGIN] 解析 plugin.json 异常: " << jsonPath
+                << "\n  异常: " << e.what() << "\n";
+            continue;
+        }
+
+        /* 2. 加载 DLL */
+        std::string dllPath = dir + "\\" + mf.entry;
+        if (!fileExists(dllPath))
+        {
+            std::cerr << "\n[PLUGIN] 缺失入口 DLL: " << dllPath << "\n";
+            continue;
+        }
+
+        HMODULE hMod = LoadLibraryA(dllPath.c_str());
+        if (!hMod)
+        {
+            printWin32Error("LoadLibrary", dllPath);
+            continue;
+        }
+
+        /* 3. 构建插件对象 */
+        Plugin plugin{ dir, mf, hMod };
+
+        /* 4. 注册命令 */
+        using RegFunc = void(*)(
+            std::unordered_map<std::string, std::function<int(int, char**)>>&);
+        RegFunc reg = (RegFunc)GetProcAddress(hMod, "RegisterCommands");
+        if (!reg)
+        {
+            printWin32Error("GetProcAddress(RegisterCommands)", dllPath);
+            // 仍保留插件对象，只是不注册命令
+        }
+        else
+        {
+            reg(plugin.commands);
+            for (auto& [cmdName, fn] : plugin.commands)
+                globalCommands[cmdName] = fn;   // 合并到全局表
+        }
+
+        loadedPlugins.emplace_back(std::move(plugin));
+        std::cerr << "[PLUGIN] 加载成功: " << mf.name << " v" << mf.version
+            << " (" << mf.author << ")\n";
+
     } while (FindNextFileA(h, &fd));
+
     FindClose(h);
 }
+
 
 
 // --------------- 用法字符串 ---------------
@@ -437,33 +519,36 @@ void showUsage()
     title(); std::cerr << "用法：\n"; rst();
     std::cerr << ""; title(); std::cerr << " [推荐]"; rst(); cmd(); std::cerr << "vsenv f"; rst(); std::cerr << "\t\t\t\t\t交互模式启动实例\n";
     title(); std::cerr << " 基础功能 =======================================================================================\n"; rst();
-    cmd();   std::cerr << "  vsenv --version"; rst(); std::cerr << "\t\t\t\t显示版本信息\n";
-    cmd();   std::cerr << "  vsenv create"; rst(); std::cerr << " <实例名> [路径] \n";
-    cmd();   std::cerr << "  vsenv start";  rst(); std::cerr << "  <实例名> ";
-        opt();   std::cerr << "[--host] [--mac] [--proxy <url>] [--sandbox] [--fake-hw]"; rst(); std::cerr << "\n";
-    cmd();   std::cerr << "  vsenv stop";   rst(); std::cerr << "   <实例名> \n";
-    cmd();   std::cerr << "  vsenv remove"; rst(); std::cerr << " <实例名> \n";
-    cmd();   std::cerr << "  vsenv list"; rst(); std::cerr << "\t\t\t\t\t列出全部实例\n";
+    cmd();   std::cerr << "  vsenv --version";          rst(); std::cerr << "\t\t\t\t显示版本信息\n";
+    cmd();   std::cerr << "  vsenv create";             rst(); std::cerr << " <实例名> [路径] \t\t\t创建指定实例\n";
+    cmd();   std::cerr << "  vsenv start";              rst(); std::cerr << "  <实例名> ";
+    opt();   std::cerr << "[--host] [--mac] [--proxy <url>] [--sandbox] [--fake-hw]";   rst();std::cerr << "开启指定实例\n";
+    cmd();   std::cerr << "  vsenv stop";               rst(); std::cerr << "   <实例名> \t\t\t结束指定实例（过时）\n";
+    cmd();   std::cerr << "  vsenv remove";             rst(); std::cerr << " <实例名> \t\t\t删除指定实例\n";
+    cmd();   std::cerr << "  vsenv list";               rst(); std::cerr << "\t\t\t\t\t列出全部实例\n";
     title(); std::cerr << " 注册协议 =======================================================================================\n"; rst();
-    cmd();   std::cerr << "  vsenv regist"; rst(); std::cerr << " <实例名>\t\t\t\t将 vscode:// 协议重定向到此实例\n";
-    cmd();   std::cerr << "  vsenv regist-guard"; rst(); std::cerr << " <实例名>\t\t\t守护 vscode:// 协议不被篡改（需管理员权限）\n";
-    cmd();   std::cerr << "  vsenv logoff"; rst(); std::cerr << "\t\t\t\t\t恢复默认的 vscode:// 协议处理程序\n";
-    cmd();   std::cerr << "  vsenv rest"; rst(); std::cerr << " <路径>\t\t\t\t手动重建 vscode:// 协议（支持拖拽带双引号的路径）\n";
+    cmd();   std::cerr << "  vsenv regist";             rst(); std::cerr << " <实例名>\t\t\t\t将 vscode:// 协议重定向到此实例\n";
+    cmd();   std::cerr << "  vsenv regist-guard";       rst(); std::cerr << " <实例名>\t\t\t守护 vscode:// 协议不被篡改（需管理员权限）\n";
+    cmd();   std::cerr << "  vsenv logoff";             rst(); std::cerr << "\t\t\t\t\t恢复默认的 vscode:// 协议处理程序\n";
+    cmd();   std::cerr << "  vsenv rest";               rst(); std::cerr << " <路径>\t\t\t\t手动重建 vscode:// 协议（支持拖拽带双引号的路径）\n";
     title(); std::cerr << " 安装VSCode插件 =================================================================================\n"; rst();
-    cmd();   std::cerr << "  vsenv extension"; rst(); std::cerr << " <实例名> <扩展ID>\t\t安装单个扩展\n";
-    cmd();   std::cerr << "  vsenv extension "; rst(); std::cerr << "<实例名> "; cmd(); std::cerr << "import"; rst(); std::cerr << " <列表文件>\t批量安装\n";
-    cmd();   std::cerr << "  vsenv extension "; rst(); std::cerr << "<实例名> "; cmd(); std::cerr << "list";   rst(); std::cerr << "\t\t\t列出已装扩展\n";
+    cmd();   std::cerr << "  vsenv extension";          rst(); std::cerr << " <实例名> <扩展ID>\t\t安装单个扩展\n";
+    cmd();   std::cerr << "  vsenv extension ";         rst(); std::cerr << "<实例名> "; cmd(); std::cerr << "import"; rst(); std::cerr << " <列表文件>\t批量安装\n";
+    cmd();   std::cerr << "  vsenv extension ";         rst(); std::cerr << "<实例名> "; cmd(); std::cerr << "list";   rst(); std::cerr << "\t\t\t列出已装扩展\n";
     title(); std::cerr << " 导入导出 =======================================================================================\n"; rst();
-    cmd();   std::cerr << "  vsenv export"; rst(); std::cerr << " <实例名> <导出路径>\t\t导出实例\n";
-    cmd();   std::cerr << "  vsenv import"; rst(); std::cerr << " <配置文件> [新实例名]\t\t导入实例\n";
+    cmd();   std::cerr << "  vsenv export";             rst(); std::cerr << " <实例名> <导出路径>\t\t导出实例\n";
+    cmd();   std::cerr << "  vsenv import";             rst(); std::cerr << " <配置文件> [新实例名]\t\t导入实例\n";
     title(); std::cerr << " VSenv插件 ======================================================================================\n"; rst();
-    cmd();   std::cerr << "  vsenv plugin install -i ";     rst(); std::cerr << "<路径>\t\t安装本地插件\n";
+    cmd();   std::cerr << "  vsenv plugin install -i "; rst(); std::cerr << "<路径>\t\t安装本地插件\n";
     cmd();   std::cerr << "  vsenv plugin remove ";     rst(); std::cerr << "<插件名>\t\t\t卸载插件\n";
-    cmd();   std::cerr << "  vsenv plugin list";     rst(); std::cerr << "\t\t\t\t列出已安装插件\n";
-    cmd();   std::cerr << "  vsenv pm";     rst(); std::cerr << "\t\t\t\t\t插件包管理器\n";
+    cmd();   std::cerr << "  vsenv plugin list";        rst(); std::cerr << "\t\t\t\t列出已安装插件\n";
+    cmd();   std::cerr << "  vsenv pm";                 rst(); std::cerr << "\t\t\t\t\t插件包管理器\n";
+    title(); std::cerr << " 调试功能 ========================================================================================\n"; rst();
+    cmd();   std::cerr << "  vsenv -debug ";            rst(); std::cerr << "<路径>\t\t\t\t调试模式\n";
+    cmd();   std::cerr << "  vsenv doctor ";            rst(); std::cerr << "<路径>\t\t\t\t自检\n";
     std::cerr << "\n";
     title(); std::cerr << "全局选项：\n"; rst();
-    opt();   std::cerr << "  --lang <en|cn>"; rst() ; std::cerr << "   设置界面语言，默认为 \"en\"。\n"; rst();
+    opt();   std::cerr << "  --lang <en|cn>"; rst() ;std::cerr << "      设置VSenv语言，默认为 \"en\"。\n"; rst();
     std::cerr << "\n";
     title(); std::cerr << "vsenv start 选项：\n"; rst();
     opt();   std::cerr << "  --host"; rst(); std::cerr << "              在当前 Windows 会话内随机化主机名（需管理员权限）。\n"; rst();
@@ -932,10 +1017,42 @@ void printBanner() {
     cout << "=======================================\n";
     cout << "  本软件完全免费开源，买到就是被骗啦！\n";
     cout << "  回声洞: \n" << line2 << '\n';
-    cout << "  仓库：  https://github.com/dhjs0000/vsenv\n  回声洞投稿：https://github.com/dhjs0000/vsenv/issues\n";
+    cout << "  仓库：      https://github.com/dhjs0000/vsenv\n  回声洞投稿：https://github.com/dhjs0000/vsenv/issues\n";
     cout << "=======================================\n\n";
-    cout << " VSenv " << VSENV_VERSION << " by " << VSENV_AUTHOR << " (" << VSENV_LICENSE << ")\n\n";
+    cout << " VSenv " << VSENV_VERSION << "(" << VSENV_DATE << ")" << " by " << VSENV_AUTHOR << " (" << VSENV_LICENSE << ")\n\n";
     cout << " VSenv (C) 2025 by dhjs0000，为爱发电中～\n\n";
+    std::tm tmNow{};
+    #if defined(_WIN32)
+    time_t t;
+    time(&t);
+    localtime_s(&tmNow, &t);   // Windows 安全版本
+    #else
+    std::time_t t = std::time(nullptr);
+    tmNow = *std::localtime(&t);  // Linux / macOS
+    #endif
+
+    int month = tmNow.tm_mon + 1;
+    int day = tmNow.tm_mday;
+
+    // 距离 11 月 1 日的天数（忽略闰年，近似）
+    int daysLeft = 0;
+    if (month < 11) {
+        daysLeft = (11 - month) * 30 + (1 - day);          // 粗略
+    }
+    else if (month == 11 && day <= 1) {
+        daysLeft = 1 - day;                                // 当天或前夕
+    }
+    else {
+        daysLeft = 365 + (11 - month) * 30 + (1 - day);    // 跨年到明年
+    }
+    if (daysLeft < 0) daysLeft += 365;
+
+    if (daysLeft <= 30) {
+        con::setColor(con::GREEN);
+        cout << "ヾ(≧▽≦*)o CSP-J/S 2025 即将开考（还有 " << daysLeft << " 天）！\n";
+        cout << "   祝你 RP++，代码 0 错误 0 警告，freopen 永不忘记！\n";
+        con::reset();
+    }
 }
 
 /* =========== 隔离方案实现 =========== */
@@ -1746,8 +1863,249 @@ bool isValidCommand(const std::string& cmd) {
     return std::find(validCommands.begin(), validCommands.end(), cmd) == validCommands.end();
 }
 
+static void doctor(const L10N& L)
+{
+    con::setColor(con::CYAN);
+    cout << "\nVSenv Doctor —— 一键自检工具\n";
+    con::reset();
+
+    int err = 0;
+    auto fail = [&](const string& msg) {
+        con::setColor(con::RED);
+        cout << "[-] " << msg << "\n";
+        con::reset();
+        ++err;
+        };
+    auto ok = [&](const string& msg) {
+        con::setColor(con::GREEN);
+        cout << "[+] " << msg << "\n";
+        con::reset();
+        };
+
+    /* 1. 主目录 */
+    string vsenvHome = homeDir() + "\\.vsenv";
+    if (!fileExists(vsenvHome))
+        fail("主目录不存在: " + vsenvHome);
+    else
+        ok("主目录存在: " + vsenvHome);
+
+    /* 2. 插件目录 */
+    string pdir = pluginDir();
+    if (!fileExists(pdir))
+        fail("插件目录不存在: " + pdir);
+    else
+        ok("插件目录存在: " + pdir);
+
+    /* 3. 注册表写入能力（仅检查当前用户） */
+    const string testKey = "Software\\Classes\\vsenv_doctor_test";
+    if (!writeRegValue(testKey, "", "test"))
+        fail("无法写入注册表（可能无权限）");
+    else
+    {
+        ok("注册表可写");
+        SHDeleteKeyA(HKEY_CURRENT_USER, testKey.c_str()); // 清理
+    }
+
+    /* 4. PowerShell 可用性（后面很多功能依赖它） */
+    if (system("powershell -Command \"exit 0\" >nul 2>&1") != 0)
+        fail("PowerShell 不可用或被杀软拦截");
+    else
+        ok("PowerShell 可用");
+
+    /* 5. 插件加载统计 */
+    if (loadedPlugins.empty())
+        cout << "[*]  当前未加载任何插件\n";
+    else
+        ok("已加载 " + std::to_string(loadedPlugins.size()) + " 个插件");
+
+    /* 6. 实例扫描 */
+    auto list = enumerateInstances();
+    if (list.empty())
+        cout << "[*]  未找到任何实例\n";
+    else
+        ok("发现 " + std::to_string(list.size()) + " 个实例");
+
+    /* 7. 总结 */
+    con::setColor(err ? con::YELLOW : con::GREEN);
+    cout << "\nDoctor 完成：发现 " << err << " 个问题。\n";
+    if (err)
+        cout << "请根据上方提示修复后再使用 VSenv 高级功能。\n";
+    else
+        cout << "你的 VSenv 非常健康，放心食用！\n";
+    con::reset();
+}
+
+static int debugCommand(int argc, char** argv)
+{
+    if (argc < 2) {
+        std::cerr << "用法: vsenv -debug <子命令> [参数...]\n"
+            "子命令:\n"
+            "  reg          打印 vscode:// 协议当前值\n"
+            "  loaded       打印已加载插件列表与入口地址\n"
+            "  env          打印 VSenv 相关环境变量/路径\n"
+            "  crash        故意触发一次崩溃（用于测试崩溃报告）\n"
+            "  exception    故意抛出 C++ 异常（用于测试异常捕获）\n"
+            "  trace        打印最后一次 Windows 错误码及消息\n"
+            "  dll <插件名>  打印该 DLL 所有导出函数"
+            "  token        打印当前进程 Token 信息（是否管理员、SessionID）"
+            "  proc <实例名> 打印该实例进程的命令行、启动时间、退出码";
+        return 0;
+    }
+
+    std::string sub = argv[1];
+    if (sub == "reg") {
+        char buf[4096]{};
+        DWORD sz = sizeof(buf);
+        if (readRegValue("Software\\Classes\\vscode\\shell\\open\\command", "", buf, sz))
+            std::cout << "vscode:// = " << buf << "\n";
+        else
+            std::cout << "vscode:// 尚未注册\n";
+        return 0;
+    }
+
+    if (sub == "loaded") {
+        if (loadedPlugins.empty()) {
+            std::cout << "暂无插件\n";
+            return 0;
+        }
+        for (const auto& pl : loadedPlugins) {
+            printf("%-16s  DLL=0x%p  cmds=%zu  (%s v%s)\n",
+                pl.manifest.name.c_str(),
+                (void*)pl.hModule,
+                pl.commands.size(),
+                pl.manifest.author.c_str(),
+                pl.manifest.version.c_str());
+        }
+        return 0;
+    }
+
+    if (sub == "env") {
+        printf("VSENV_VERSION     = %s\n", VSENV_VERSION);
+        printf("homeDir()         = %s\n", homeDir().c_str());
+        printf("pluginDir()       = %s\n", pluginDir().c_str());
+        printf("g_debug           = %s\n", g_debug ? "on" : "off");
+        printf("loadedPlugins     = %zu\n", loadedPlugins.size());
+        return 0;
+    }
+
+    if (sub == "crash") {
+        std::cerr << "[DEBUG] 准备故意崩溃…\n";
+        volatile int* p = nullptr;
+        *p = 42;          // 经典空指针写
+        return 0;
+    }
+
+    if (sub == "exception") {
+        std::cerr << "[DEBUG] 准备故意抛异常…\n";
+        throw std::runtime_error("这是一条调试异常，请观察上层是否 catch 住！");
+    }
+
+    if (sub == "trace") {
+        DWORD ec = GetLastError();   // 获取线程最后错误
+        printWin32Error("GetLastError", "");
+        return 0;
+    }
+    /* -------------------- dll -------------------- */
+    if (sub == "dll" && argc >= 3) {
+        std::string target = argv[2];
+        // 在已加载插件里找
+        auto it = std::find_if(loadedPlugins.begin(), loadedPlugins.end(),
+            [&](const Plugin& p) {
+                return p.manifest.name == target;
+            });
+        if (it == loadedPlugins.end()) {
+            std::cerr << "[DEBUG] 未找到插件: " << target << "\n";
+            return 1;
+        }
+        HMODULE hMod = it->hModule;
+        // 取 DOS/NT 头
+        PIMAGE_DOS_HEADER dos = (PIMAGE_DOS_HEADER)hMod;
+        PIMAGE_NT_HEADERS nt = (PIMAGE_NT_HEADERS)((BYTE*)hMod + dos->e_lfanew);
+        PIMAGE_EXPORT_DIRECTORY expDir = (PIMAGE_EXPORT_DIRECTORY)
+            ((BYTE*)hMod + nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].VirtualAddress);
+        if (!expDir) {
+            std::cerr << "[DEBUG] 该 DLL 无导出表\n";
+            return 0;
+        }
+        DWORD* names = (DWORD*)((BYTE*)hMod + expDir->AddressOfNames);
+        DWORD  total = expDir->NumberOfNames;
+        std::cout << "[DEBUG] 导出函数共 " << total << " 个:\n";
+        for (DWORD i = 0; i < total; ++i) {
+            const char* fn = (const char*)((BYTE*)hMod + names[i]);
+            std::cout << "  " << fn << "\n";
+        }
+        return 0;
+    }
+
+    /* -------------------- token -------------------- */
+    if (sub == "token") {
+        HANDLE hTok = nullptr;
+        if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &hTok)) {
+            printWin32Error("OpenProcessToken");
+            return 1;
+        }
+        // 1.  elevation 类型
+        TOKEN_ELEVATION elev{};
+        DWORD retLen = 0;
+        BOOL  isAdmin = FALSE;
+        GetTokenInformation(hTok, TokenElevation, &elev, sizeof(elev), &retLen);
+        // 2. 检查是否管理员
+        SID_IDENTIFIER_AUTHORITY nt = SECURITY_NT_AUTHORITY;
+        PSID adminGroup = nullptr;
+        AllocateAndInitializeSid(&nt, 2, SECURITY_BUILTIN_DOMAIN_RID,
+            DOMAIN_ALIAS_RID_ADMINS, 0, 0, 0, 0, 0, 0, &adminGroup);
+        CheckTokenMembership(hTok, adminGroup, &isAdmin);
+        FreeSid(adminGroup);
+        // 3.  SessionID
+        DWORD sessId = 0;
+        retLen = sizeof(sessId);
+        GetTokenInformation(hTok, TokenSessionId, &sessId, sizeof(sessId), &retLen);
+        CloseHandle(hTok);
+
+        std::cout << "[DEBUG] Token 信息\n"
+            << "  当前会话 ID : " << sessId << "\n"
+            << "  是否提升    : " << (elev.TokenIsElevated ? "是" : "否") << "\n"
+            << "  是否管理员  : " << (isAdmin ? "是" : "否") << "\n";
+        return 0;
+    }
+
+    /* -------------------- proc -------------------- */
+    if (sub == "proc" && argc >= 3) {
+        std::string iname = argv[2];
+        std::string dir = rootDir(iname);
+        std::string exe = dir + "\\vscode\\Code.exe";
+        if (!fileExists(exe)) {
+            std::cerr << "[DEBUG] 实例无效或不存在: " << iname << "\n";
+            return 1;
+        }
+        // 根据窗口标题模糊匹配进程
+        std::string wcmd =
+            "powershell -NoProfile -Command \""
+            "$p = Get-CimInstance Win32_Process | "
+            "Where-Object { $_.CommandLine -Like '*" + iname + "*' -and $_.Name -Eq 'Code.exe' } "
+            "| Select-Object -First 1; "
+            "if ($p) { "
+            "  $start = $p.CreationDate; "
+            "  $exit  = $p.ExitCode; "
+            "  Write-Host 'PID=', $p.ProcessId; "
+            "  Write-Host 'CommandLine=', $p.CommandLine; "
+            "  Write-Host 'StartTime=', $start; "
+            "  Write-Host 'ExitCode=', $exit; "
+            "} else { "
+            "  Write-Host '未找到运行中的实例进程'; "
+            "}\"";
+        system(wcmd.c_str());
+        return 0;
+    }
+    std::cerr << "未知子命令: " << sub << "\n";
+    return 1;
+}
+
 /* =========== 入口 =========== */
 int main(int argc, char** argv) {
+    for (int i = 1; i < argc; ++i)
+        if (strcmp(argv[i], "-debug") == 0)
+            g_debug = true;
     if (!fileExists(pluginDir())) _mkdir(pluginDir().c_str());
     loadPlugins();
     //if (globalCommands.empty())
@@ -1760,6 +2118,10 @@ int main(int argc, char** argv) {
     bool download;
 
     for (int i = 1; i < argc; ++i) {
+        if (strcmp(argv[i], "-debug") == 0) {
+            g_debug = true;
+            DBG("调试模式已开启\n");
+        }
         if (strcmp(argv[i], "--lang") == 0 && i + 1 < argc) {
             if (strcmp(argv[i + 1], "cn") == 0) lang = CN;
             ++i;
@@ -1939,6 +2301,13 @@ int main(int argc, char** argv) {
 )";
         return 0;
     }
+    else if (cmd == "doctor") {
+        doctor(lang);
+        return 0;
+}
+    else if (cmd == "-debug") {
+        return debugCommand(argc - 1, argv + 1);
+}
 
     if (argc < 3) {
         if (isValidCommand(cmd)) {
