@@ -4,12 +4,12 @@
     该程序允许用户创建、启动、停止和删除独立的 VS Code 实例，
     每个实例拥有独立的用户数据和扩展目录。
 
-    版本：1.6.0
+    版本：1.6.1
 */
 
 // 常量定义
 
-#define VSENV_VERSION "1.6.0"
+#define VSENV_VERSION "1.6.1"
 #define VSENV_DATE "2025-10-13"
 #define VSENV_AUTHOR "dhjs0000"
 #define VSENV_LICENSE "AGPLv3.0"
@@ -406,7 +406,7 @@ static void printWin32Error(const std::string& ctx, const std::string& path = ""
     con::reset();
 }
 
-void loadPlugins()
+void loadPlugins(bool isQuiet)
 {
     std::string base = pluginDir();
     if (!fileExists(base))
@@ -494,6 +494,7 @@ void loadPlugins()
         }
 
         loadedPlugins.emplace_back(std::move(plugin));
+        if(!isQuiet)
         std::cerr << "[PLUGIN] 加载成功: " << mf.name << " v" << mf.version
             << " (" << mf.author << ")\n";
 
@@ -549,6 +550,7 @@ void showUsage()
     std::cerr << "\n";
     title(); std::cerr << "全局选项：\n"; rst();
     opt();   std::cerr << "  --lang <en|cn>"; rst() ;std::cerr << "      设置VSenv语言，默认为 \"en\"。\n"; rst();
+    opt();   std::cerr << "  -quiet        "; rst(); std::cerr << "      安静模式（不输出彩蛋信息）\n";
     std::cerr << "\n";
     title(); std::cerr << "vsenv start 选项：\n"; rst();
     opt();   std::cerr << "  --host"; rst(); std::cerr << "              在当前 Windows 会话内随机化主机名（需管理员权限）。\n"; rst();
@@ -1009,7 +1011,8 @@ std::vector<std::string> bannerL2Text = {
     "  模板元编程：编译器，你辛苦了",
 };
 extern std::vector<std::string> bannerL2Text;
-void printBanner() {
+void printBanner(bool isQuite) {
+    if (isQuite) return;
     static std::mt19937 rng(
         static_cast<unsigned>(std::chrono::steady_clock::now().time_since_epoch().count()));
     std::uniform_int_distribution<std::size_t> dist(0, bannerL2Text.size() - 1);
@@ -1472,10 +1475,10 @@ void remove(const string& name, const L10N& L, char* argv0) {
     printf(L.removed.c_str(), name.c_str());
 }
 
-void interactiveMode(const L10N& lang)
+void interactiveMode(const L10N& lang, bool isQuiet)
 {
     system("cls");
-    printBanner();
+    printBanner(isQuiet);
     cout << "交互模式：↑↓ 选择，回车启动，: 添加参数，Esc 退出\n\n";
 
     auto instances = enumerateInstances();
@@ -2103,14 +2106,17 @@ static int debugCommand(int argc, char** argv)
 
 /* =========== 入口 =========== */
 int main(int argc, char** argv) {
+    bool isQuiet = 0;
     for (int i = 1; i < argc; ++i)
         if (strcmp(argv[i], "-debug") == 0)
             g_debug = true;
+        else if (strcmp(argv[i], "--quiet") == 0)
+            isQuiet = 1;
     if (!fileExists(pluginDir())) _mkdir(pluginDir().c_str());
-    loadPlugins();
+    loadPlugins(isQuiet);
     //if (globalCommands.empty())
         //std::cout << "[PLUGIN] no commands registered!\n";
-    printBanner();
+    printBanner(isQuiet);
     L10N lang = EN;
     bool randomHost = false, randomMac = false;
     string proxy;
@@ -2158,6 +2164,7 @@ int main(int argc, char** argv) {
         return globalCommands[cmd](argc - 1, argv + 1);   // 跳过程序名
     }
     if (cmd == "--version") {
+        if (isQuiet) cerr << "VSenv " << VSENV_VERSION;
         return 0;
     }
     else if (cmd == "--echo") {
@@ -2168,7 +2175,6 @@ int main(int argc, char** argv) {
         cout << line2 << "\n";
     }
     else if (cmd == "rest") {
-        printBanner();
         // 处理带双引号的路径 (用户拖拽文件时可能包含)
         string path;
         if (argc >= 3) {
@@ -2217,7 +2223,7 @@ int main(int argc, char** argv) {
         return 0;
     }
     else if (cmd == "f") {
-        interactiveMode(lang);
+        interactiveMode(lang, isQuiet);
         return 0;
     }
     else if (cmd == "plugin") {
