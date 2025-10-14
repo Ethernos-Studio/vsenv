@@ -4,12 +4,12 @@
     该程序允许用户创建、启动、停止和删除独立的 VS Code 实例，
     每个实例拥有独立的用户数据和扩展目录。
 
-    版本：1.6.1
+    版本：1.6.2
 */
 
 // 常量定义
 
-#define VSENV_VERSION "1.6.1"
+#define VSENV_VERSION "1.6.2"
 #define VSENV_DATE "2025-10-13"
 #define VSENV_AUTHOR "dhjs0000"
 #define VSENV_LICENSE "AGPLv3.0"
@@ -1500,7 +1500,7 @@ void interactiveMode(const L10N& lang, bool isQuiet)
     while (true)
     {
         // 清屏并重画
-        COORD home = { 0, 11 };
+        COORD home = { 0, 15 };
         SetConsoleCursorPosition(GetStdHandle(STD_OUTPUT_HANDLE), home);
         for (int i = 0; i < (int)instances.size(); ++i)
         {
