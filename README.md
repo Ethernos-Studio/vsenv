@@ -1,7 +1,7 @@
 # VSenv - VS Code 离线实例管理器
 
 ![License](https://img.shields.io/badge/License-AGPLv3.0-blue.svg)
-![Version](https://img.shields.io/badge/Version-1.0.0-green.svg)
+![Version](https://img.shields.io/badge/Version-1.6.2-green.svg)
 ![Platform](https://img.shields.io/badge/Platform-Windows-lightgrey.svg)
 ![Status](https://img.shields.io/badge/Status-Only--fix-red.svg)
 
@@ -94,9 +94,15 @@ msbuild vsenv.sln /p:Configuration=Release
 ```cmd
 vsenv --version
 ```
-应显示：`VSenv 1.0.0 by dhjs0000 (AGPLv3.0)`
+应显示：`VSenv 1.6.2 by dhjs0000 (AGPLv3.0)`
 
 ## 🚀 快速开始
+
+### 交互模式（推荐）
+```cmd
+# 启动交互模式选择实例
+vsenv f
+```
 
 ### 创建你的第一个实例
 ```cmd
@@ -104,7 +110,7 @@ vsenv --version
 vsenv create myproject
 
 # 将 VS Code 离线包解压到指定目录
-# 默认路径: C:\Users\<用户名>\.vsenv\myproject\vscode\
+# 默认路径: C:\Users\<用户名>\.vsenv\myproject\vscode
 ```
 
 ### 启动实例
@@ -126,6 +132,18 @@ vsenv extension list myproject
 ```
 
 ## 📚 详细使用说明
+
+### 交互模式（推荐）
+```cmd
+# 启动交互模式
+vsenv f
+
+# 在交互模式中：
+# ↑↓ 键选择实例
+# 回车键启动选中实例
+# : 键添加启动参数
+# Esc 键退出
+```
 
 ### 实例管理命令
 
@@ -172,7 +190,24 @@ vsenv stop project-alpha
 vsenv remove project-alpha
 ```
 
-### 扩展管理
+### VSenv插件系统
+
+#### 插件管理
+```cmd
+# 安装本地插件
+vsenv plugin install -i <插件路径>
+
+# 卸载插件
+vsenv plugin remove <插件名>
+
+# 列出已安装插件
+vsenv plugin list
+
+# 插件包管理器
+vsenv pm
+```
+
+#### 扩展管理
 
 #### 单个扩展操作
 ```cmd
@@ -304,11 +339,38 @@ VSenv 可以随机化以下硬件标识符：
 
 ### 常见问题
 
-#### 1. VS Code 未找到
-**问题**: `Code.exe not found, please check the path.`
-**解决**: 
-- 确保已将 VS Code 离线包解压到正确目录
-- 检查路径：`实例目录\vscode\Code.exe` 是否存在
+### 调试和诊断工具
+
+#### 医生模式（Doctor）
+```cmd
+# 运行系统自检
+vsenv doctor
+
+# 检查项目包括：
+# - 主目录存在性
+# - 插件目录状态
+# - 注册表写入权限
+# - PowerShell可用性
+# - 插件加载状态
+# - 实例扫描结果
+```
+
+#### 调试模式
+```cmd
+# 启用调试模式
+vsenv -debug <子命令>
+
+# 可用子命令：
+# reg     - 打印vscode://协议当前值
+# loaded  - 打印已加载插件列表
+# env     - 打印环境变量和路径
+# crash   - 故意触发崩溃（测试用）
+# exception - 故意抛出异常（测试用）
+# trace   - 打印最后一次Windows错误
+# dll <插件名> - 打印DLL导出函数
+# token   - 打印当前进程Token信息
+# proc <实例名> - 打印实例进程信息
+```
 
 #### 2. 权限不足
 **问题**: 网络相关功能需要管理员权限
@@ -397,20 +459,6 @@ Copyright (C) 2025 dhjs0000
 你应该已经收到了一份GNU Affero通用公共许可证的副本
 如果没有，请参阅<https://www.gnu.org/licenses/>。
 ```
-
-## 📋 更新日志
-
-### v1.0.0 (2025-09-27)
-- ✅ 实例创建、启动、停止、删除功能
-- ✅ 多层级隔离机制（文件、注册表、网络）
-- ✅ 硬件指纹伪装功能
-- ✅ 协议重定向和守护
-- ✅ 扩展批量管理
-- ✅ 实例导入导出
-- ✅ 中英文多语言支持
-- ✅ 沙箱执行环境
-- ✅ 网络隔离和代理支持
-
 ---
 
 ## 🔗 相关链接
@@ -425,5 +473,5 @@ Copyright (C) 2025 dhjs0000
 **温馨提示**: 本软件完全免费开源，如果你付费购买了这个软件，那么你被骗了！请通过官方渠道获取。
 
 ---
-*最后更新: 2025年9月*  
+*最后更新: 2025年10月*  
 *维护者: [dhjs0000](https://github.com/dhjs0000)*
