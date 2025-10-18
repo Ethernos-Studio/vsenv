@@ -10,7 +10,7 @@
 // 常量定义
 
 #define VSENV_VERSION "1.6.2"
-#define VSENV_DATE "2025-10-13"
+#define VSENV_DATE "2025-10-18"
 #define VSENV_AUTHOR "dhjs0000"
 #define VSENV_LICENSE "AGPLv3.0"
 
@@ -2247,26 +2247,13 @@ int main(int argc, char** argv) {
         std::string ans;
         std::getline(std::cin, ans);
         if (!ans.empty() && (ans[0] == 'y' || ans[0] == 'Y')) {
-            /* 3. 释放 DLL */
-            if (it->hModule) {
-                FreeLibrary(it->hModule);
-                it->hModule = nullptr;
-            }
-
-            /* 4. 从全局命令表删除该插件注册的所有命令 */
-            for (const auto& [cmdName, _] : it->commands)
-                globalCommands.erase(cmdName);
-
-            /* 5. 删目录 */
+            
             std::error_code ec;
             std::filesystem::remove_all(it->path, ec);   // C++17
             if (ec) {
                 std::cerr << "如果没有删除干净，自行删除" << it->path << "。";
                 return 1;
             }
-
-            /* 6. 从内存列表移除 */
-            loadedPlugins.erase(it);
 
             std::cout << "插件 '" << targetName << "' 已卸载。\n";
         }

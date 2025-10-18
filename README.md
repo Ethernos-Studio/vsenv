@@ -3,6 +3,7 @@
 ![License](https://img.shields.io/badge/License-AGPLv3.0-blue.svg)
 ![Version](https://img.shields.io/badge/Version-1.0.0-green.svg)
 ![Platform](https://img.shields.io/badge/Platform-Windows-lightgrey.svg)
+![Status](https://img.shields.io/badge/Status-Only--fix-red.svg)
 
 ![Image](./images/vsenv.png)
 
@@ -25,6 +26,8 @@
 - [贡献指南](#贡献指南)
 - [许可证](#许可证)
 - [更新日志](#更新日志)
+
+> ⚠️ **项目状态声明**: 该项目已进入 **Only-fix** 状态，仅接受bug修复，不再开发新功能。感谢所有用户的支持与贡献！
 
 ## 🚀 项目简介
 
@@ -338,7 +341,9 @@ vsenv start project-alpha
 
 ## 🤝 贡献指南
 
-我们欢迎社区贡献！请阅读以下指南：
+> ⚠️ **重要提醒**: 由于项目已进入 **Only-fix** 状态，目前**仅接受bug修复相关的贡献**。新功能开发将不再被合并。
+
+对于bug修复的贡献，请阅读以下指南：
 
 ### 开发环境设置
 1. Fork 本仓库
@@ -367,11 +372,13 @@ vsenv start project-alpha
 - 测试你的更改
 
 ### 报告问题
-请在 GitHub Issues 中报告 bug 或提出功能请求，包括：
+请在 GitHub Issues 中报告 bug，包括：
 - 详细的问题描述
 - 复现步骤
 - 系统环境信息
 - 错误日志（如果有）
+
+> ⚠️ **注意**: 目前**仅接受bug报告**，新功能请求将不会被处理。
 
 ## 📄 许可证
 
