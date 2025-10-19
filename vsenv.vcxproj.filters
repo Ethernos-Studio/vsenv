@@ -38,6 +38,7 @@
     <None Include="README_JP_F.md">
       <Filter>repo</Filter>
     </None>
+    <None Include="AutomationDocs.md" />
   </ItemGroup>
   <ItemGroup>
     <Text Include="LICENSE.txt">

@@ -134,6 +134,7 @@
   <ItemGroup>
     <ClCompile Include="hello.cpp" />
     <ClCompile Include="main.cpp" />
+    <None Include="AutomationDocs.md" />
     <None Include="README_JP_F.md">
       <FileType>Document</FileType>
     </None>

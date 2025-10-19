@@ -11,7 +11,9 @@
 
 [![Star History Chart](https://api.star-history.com/svg?repos=dhjs0000/vsenv&type=Date)](https://www.star-history.com/#dhjs0000/vsenv&Date)
 
-[English](./README_EN.md) | [中文](./README.md)
+[English](./README_EN.md) | [中文](./README.md) | [日本語](./README_JP_F.md) |]
+
+[自动化文档](./AutomationDocs.md)]
 
 ## 📖 目录
 - [项目简介](#项目简介)

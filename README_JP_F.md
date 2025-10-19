@@ -4,7 +4,14 @@
 ![Version](https://img.shields.io/badge/Version-1.0.0-green.svg )  
 ![Platform](https://img.shields.io/badge/Platform-Windows-lightgrey.svg )
 
+![Image](./images/vsenv.png)]
+
+# ## Star History
+[![Star History Chart](https://api.star-history.com/svg?repos=dhjs0000/vsenv&type=Date)](https://www.star-history.com/#dhjs0000/vsenv&Date)
+
 [English](./README_EN.md) | [中文](./README.md)
+
+[オートメーションドキュメント](./AutomationDocs.md)]
 
 ## 📖 目次
 - [プロジェクト概要](#プロジェクト概要)
