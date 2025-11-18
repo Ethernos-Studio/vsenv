@@ -4,12 +4,12 @@
     该程序允许用户创建、启动、停止和删除独立的 VS Code 实例，
     每个实例拥有独立的用户数据和扩展目录。
 
-    版本：1.6.2
+    版本：1.6.3
 */
 
 // 常量定义
 
-#define VSENV_VERSION "1.6.2"
+#define VSENV_VERSION "1.6.3"
 #define VSENV_DATE "2025-10-18"
 #define VSENV_AUTHOR "dhjs0000"
 #define VSENV_LICENSE "AGPLv3.0"
@@ -436,6 +436,7 @@ void loadPlugins(bool isQuiet)
         std::string jsonPath = dir + "\\plugin.json";
         if (!fileExists(jsonPath))
         {
+            if (!isQuiet)
             std::cerr << "\n[PLUGIN] 跳过目录（缺少 plugin.json）: " << dir << "\n";
             continue;
         }
@@ -447,6 +448,7 @@ void loadPlugins(bool isQuiet)
             mf = loadManifest(jsonPath);
             if (mf.name.empty() || mf.entry.empty())
             {
+                if (!isQuiet)
                 std::cerr << "\n[PLUGIN] 无效的 plugin.json（缺失 name 或 entry）: "
                     << jsonPath << "\n";
                 continue;
@@ -454,6 +456,7 @@ void loadPlugins(bool isQuiet)
         }
         catch (const std::exception& e)
         {
+            if (!isQuiet)
             std::cerr << "\n[PLUGIN] 解析 plugin.json 异常: " << jsonPath
                 << "\n  异常: " << e.what() << "\n";
             continue;
@@ -463,6 +466,7 @@ void loadPlugins(bool isQuiet)
         std::string dllPath = dir + "\\" + mf.entry;
         if (!fileExists(dllPath))
         {
+            if (!isQuiet)
             std::cerr << "\n[PLUGIN] 缺失入口 DLL: " << dllPath << "\n";
             continue;
         }
@@ -1949,8 +1953,8 @@ static int debugCommand(int argc, char** argv)
             "  crash        故意触发一次崩溃（用于测试崩溃报告）\n"
             "  exception    故意抛出 C++ 异常（用于测试异常捕获）\n"
             "  trace        打印最后一次 Windows 错误码及消息\n"
-            "  dll <插件名>  打印该 DLL 所有导出函数"
-            "  token        打印当前进程 Token 信息（是否管理员、SessionID）"
+            "  dll <插件名>  打印该 DLL 所有导出函数\n"
+            "  token        打印当前进程 Token 信息（是否管理员、SessionID）\n"
             "  proc <实例名> 打印该实例进程的命令行、启动时间、退出码";
         return 0;
     }
