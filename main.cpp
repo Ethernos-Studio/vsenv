@@ -10,7 +10,7 @@
 // 常量定义
 
 #define VSENV_VERSION "1.6.3"
-#define VSENV_DATE "2025-10-18"
+#define VSENV_DATE "2025-11-21"
 #define VSENV_AUTHOR "dhjs0000"
 #define VSENV_LICENSE "AGPLv3.0"
 
@@ -957,7 +957,7 @@ static void saveOtherPathEntry(const std::string& name, const std::string& real)
         f << kv.first << '\t' << kv.second << '\n';
 }
 
-/* ===========  =========== */
+/* ======================================= 回声洞 ================================================ */
 
 std::vector<std::string> bannerL2Text = {
     "  追随马斯克的步伐，坚持免费开源",
@@ -1013,6 +1013,7 @@ std::vector<std::string> bannerL2Text = {
     "  const 是什么？能吃吗？",
     "  指针的指针的指针...我晕了",
     "  模板元编程：编译器，你辛苦了",
+    "  我用的可是Arch-Linux呢~"
 };
 extern std::vector<std::string> bannerL2Text;
 void printBanner(bool isQuite) {
@@ -1042,24 +1043,43 @@ void printBanner(bool isQuite) {
     int day = tmNow.tm_mday;
 
     // 距离 11 月 1 日的天数（忽略闰年，近似）
-    int daysLeft = 0;
-    if (month < 11) {
-        daysLeft = (11 - month) * 30 + (1 - day);          // 粗略
-    }
-    else if (month == 11 && day <= 1) {
-        daysLeft = 1 - day;                                // 当天或前夕
-    }
-    else {
-        daysLeft = 365 + (11 - month) * 30 + (1 - day);    // 跨年到明年
-    }
-    if (daysLeft < 0) daysLeft += 365;
+        int daysLeft = 0;
+        if (month < 11) {
+            daysLeft = (11 - month) * 30 + (1 - day);          // 粗略
+        }
+        else if (month == 11 && day <= 1) {
+            daysLeft = 1 - day;                                // 当天或前夕
+        }
+        else {
+            daysLeft = 365 + (11 - month) * 30 + (1 - day);    // 跨年到明年
+        }
+        if (daysLeft < 0) daysLeft += 365;
 
-    if (daysLeft <= 30) {
-        con::setColor(con::GREEN);
-        cout << "ヾ(≧▽≦*)o CSP-J/S 2025 即将开考（还有 " << daysLeft << " 天）！\n";
-        cout << "   祝你 RP++，代码 0 错误 0 警告，freopen 永不忘记！\n";
-        con::reset();
-    }
+        if (daysLeft <= 30) {
+            con::setColor(con::GREEN);
+            cout << "ヾ(≧▽≦*)o CSP-J/S 2025 即将开考（还有 " << daysLeft << " 天）！\n";
+            cout << "   祝你 RP++，代码 0 错误 0 警告，freopen 永不忘记！\n";
+            con::reset();
+        }
+    // (NOIP)距离11月29日的天数（忽略闰年）
+        daysLeft = 0;
+        if (month < 11) {
+            daysLeft = (11 - month) * 30 + (29 - day);          // 粗略
+        }
+        else if (month == 11 && day <= 29) {
+            daysLeft = 29 - day;                                // 当天或前夕
+        }
+        else {
+            daysLeft = 365 + (11 - month) * 30 + (29 - day);    // 跨年到明年
+        }
+        if (daysLeft < 0) daysLeft += 365;
+
+        if (daysLeft <= 30) {
+            con::setColor(con::GREEN);
+            cout << "ヾ(≧▽≦*)o NOIP 2025 即将开考（还有 " << daysLeft << " 天）！\n";
+            cout << "   祝你 RP++，代码 0 错误 0 警告，freopen 永不忘记！\n";
+            con::reset();
+        }
 }
 
 /* =========== 隔离方案实现 =========== */
@@ -1482,7 +1502,6 @@ void remove(const string& name, const L10N& L, char* argv0) {
 void interactiveMode(const L10N& lang, bool isQuiet)
 {
     system("cls");
-    printBanner(isQuiet);
     cout << "交互模式：↑↓ 选择，回车启动，: 添加参数，Esc 退出\n\n";
 
     auto instances = enumerateInstances();
@@ -1504,7 +1523,7 @@ void interactiveMode(const L10N& lang, bool isQuiet)
     while (true)
     {
         // 清屏并重画
-        COORD home = { 0, 15 };
+        COORD home = { 0, 2 };
         SetConsoleCursorPosition(GetStdHandle(STD_OUTPUT_HANDLE), home);
         for (int i = 0; i < (int)instances.size(); ++i)
         {
@@ -2107,6 +2126,7 @@ static int debugCommand(int argc, char** argv)
     std::cerr << "未知子命令: " << sub << "\n";
     return 1;
 }
+
 
 /* =========== 入口 =========== */
 int main(int argc, char** argv) {
