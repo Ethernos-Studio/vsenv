@@ -184,6 +184,40 @@ bool fileExists(const std::string& path);
 string rootDir(const string& name);
 string homeDir();
 
+
+// 真正扫描磁盘，返回 vector
+std::vector<std::pair<std::string, std::string>> enumerateInstances()
+{
+    std::vector<std::pair<std::string, std::string>> res;
+
+    /* 1. 默认目录 */
+    string base = homeDir() + "\\.vsenv";
+    WIN32_FIND_DATAA fd;
+    HANDLE h = FindFirstFileA((base + "\\*").c_str(), &fd);
+    if (h != INVALID_HANDLE_VALUE)
+    {
+        do
+        {
+            if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+            {
+                string name = fd.cFileName;
+                if (name == "." || name == "..") continue;
+                string path = base + "\\" + name;
+                res.emplace_back(name, path);
+            }
+        } while (FindNextFileA(h, &fd));
+        FindClose(h);
+    }
+
+    /* 2. otherPath.json */
+    loadOtherPath();
+    for (const auto& [n, p] : g_otherPath)
+        res.emplace_back(n, p);
+
+    return res;
+}
+
+
 static std::string JoinPath(const std::string& a, const std::string& b)
 {
     if (a.empty()) return b;
@@ -567,7 +601,7 @@ void showUsage()
     opt();   std::cerr << "  --sandbox"; rst(); std::cerr << "           在受限的 Logon-Session 沙箱内启动 VS Code。\n"; rst();
     opt();   std::cerr << "  --fake-hw"; rst(); std::cerr << "           随机化硬件指纹（CPUID、磁盘序列号、MAC）以增强隐私和隔离。\n"; rst();
     std::cerr << "\n";
-    url();   std::cerr << "更多帮助：https://dhjs0000.github.io/VSenv/helps.html\n"; rst();
+    url();   std::cerr << "更多帮助：https://ethernos.cn/VSenv/helps.html\n"; rst();
 }
 
 void create(const string& name, const string& customPath, const L10N& L);
@@ -1111,149 +1145,6 @@ bool startInSandbox(const string& name, const L10N& L) {
     return true;
 }
 
-bool startInAppContainer(const string& name, const L10N& L) {
-    string dir = rootDir(name);
-    string exe = dir + "\\vscode\\Code.exe";
-    if (!fileExists(exe)) {
-        cerr << L.notFound << "\n";
-        return false;
-    }
-
-    // 1. 创建 AppContainer 配置文件
-    PSID appContainerSid = nullptr;
-
-    // 添加 UI 访问能力
-    WELL_KNOWN_SID_TYPE capabilities[] = {
-        WinCapabilityInternetClientSid,
-        WinCapabilityPrivateNetworkClientServerSid,
-        WinCapabilityPicturesLibrarySid,
-        WinCapabilityVideosLibrarySid,
-        WinCapabilityMusicLibrarySid,
-        WinCapabilityDocumentsLibrarySid,
-        WinCapabilityEnterpriseAuthenticationSid,
-        WinCapabilitySharedUserCertificatesSid
-    };
-
-    SID_AND_ATTRIBUTES caps[ARRAYSIZE(capabilities)];
-    for (int i = 0; i < ARRAYSIZE(capabilities); i++) {
-        caps[i].Attributes = SE_GROUP_ENABLED;
-        caps[i].Sid = (PSID)LocalAlloc(LPTR, SECURITY_MAX_SID_SIZE);
-        DWORD sidSize = SECURITY_MAX_SID_SIZE;
-        CreateWellKnownSid(capabilities[i], NULL, caps[i].Sid, &sidSize);
-    }
-
-    HRESULT hr = CreateAppContainerProfile(
-        L"VSenvAppContainer",
-        L"VSenv AppContainer",
-        L"VS Code AppContainer Profile",
-        caps,   // pCapabilities
-        ARRAYSIZE(caps), // capabilityCount
-        &appContainerSid
-    );
-
-    // 清理能力数组
-    for (int i = 0; i < ARRAYSIZE(capabilities); i++) {
-        LocalFree(caps[i].Sid);
-    }
-
-    if (FAILED(hr) && hr != HRESULT_FROM_WIN32(ERROR_ALREADY_EXISTS)) {
-        cerr << "创建 AppContainer 失败: 0x" << std::hex << hr << "\n";
-        return false;
-    }
-
-    // 2. 准备进程属性列表
-    STARTUPINFOEXA siex = { sizeof(siex) };
-    PROCESS_INFORMATION pi = {};
-
-    SIZE_T size = 0;
-    InitializeProcThreadAttributeList(nullptr, 1, 0, &size);
-    siex.lpAttributeList = (LPPROC_THREAD_ATTRIBUTE_LIST)HeapAlloc(
-        GetProcessHeap(), 0, size);
-
-    if (!siex.lpAttributeList ||
-        !InitializeProcThreadAttributeList(siex.lpAttributeList, 1, 0, &size))
-    {
-        cerr << "初始化属性列表失败\n";
-        if (siex.lpAttributeList) HeapFree(GetProcessHeap(), 0, siex.lpAttributeList);
-        return false;
-    }
-
-    // 3. 设置 AppContainer 属性
-    SECURITY_CAPABILITIES sc = {};
-    sc.AppContainerSid = appContainerSid;
-    sc.Capabilities = caps;
-    sc.CapabilityCount = ARRAYSIZE(caps);
-
-    if (!UpdateProcThreadAttribute(siex.lpAttributeList,
-        0,
-        PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES,
-        &sc,
-        sizeof(sc),
-        nullptr,
-        nullptr))
-    {
-        cerr << "更新线程属性失败: " << GetLastError() << "\n";
-        DeleteProcThreadAttributeList(siex.lpAttributeList);
-        HeapFree(GetProcessHeap(), 0, siex.lpAttributeList);
-        return false;
-    }
-
-    // 4. 准备命令行参数
-    string args = "--user-data-dir=\"" + dir + "\\data\" --extensions-dir=\"" + dir + "\\extensions\"";
-    string cmdLine = "\"" + exe + "\" " + args;
-
-    // 5. 创建进程
-    BOOL success = CreateProcessA(
-        exe.c_str(),
-        const_cast<char*>(cmdLine.c_str()),
-        nullptr,
-        nullptr,
-        FALSE,
-        EXTENDED_STARTUPINFO_PRESENT | CREATE_NEW_CONSOLE, // 添加 CREATE_NEW_CONSOLE
-        nullptr,
-        nullptr,
-        &siex.StartupInfo,
-        &pi
-    );
-
-    // 6. 清理资源
-    DeleteProcThreadAttributeList(siex.lpAttributeList);
-    HeapFree(GetProcessHeap(), 0, siex.lpAttributeList);
-
-    if (success) {
-        CloseHandle(pi.hThread);
-        CloseHandle(pi.hProcess);
-        printf(L.started.c_str(), name.c_str());
-        return true;
-    }
-    else {
-        cerr << "CreateProcess 失败: " << GetLastError() << "\n";
-        return false;
-    }
-}
-// 战略保留 AppCntainer
-void startInWindowsSandbox(const string& name, const L10N& L) {
-    string dir = rootDir(name);
-    string exe = dir + "\\vscode\\Code.exe";
-    if (!fileExists(exe)) { cerr << L.notFound << "\n"; return; }
-
-    string cmd = R"(powershell -Command "$wsb = @'
-<Configuration>
-  <MappedFolders>
-    <MappedFolder>
-      <HostFolder>)" + dir + R"(</HostFolder>
-      <ReadOnly>true</ReadOnly>
-    </MappedFolder>
-  </MappedFolders>
-  <LogonCommand>
-    <Command>)" + exe + R"( --user-data-dir C:\vsenv\)" + name + R"(\data --extensions-dir C:\vsenv\)" + name + R"(\extensions</Command>
-  </LogonCommand>
-</Configuration>
-'@ | Out-File $env:TEMP\vsenv.wsb -Encoding UTF8; Start-Process $env:TEMP\vsenv.wsb")";
-    system(cmd.c_str());
-    printf(L.started.c_str(), name.c_str());
-}
-// 战略保留WSB
 void startWithNetworkIsolation(const string& name, const L10N& L, bool randomHost, bool randomMac, const string& proxy) {
     string dir = rootDir(name);
     string exe = dir + "\\vscode\\Code.exe";
@@ -1346,38 +1237,6 @@ void printInstanceTable(const std::vector<std::pair<std::string, std::string>>& 
             cout << " (无效实例)";
         cout << "\n";
     }
-}
-
-// 真正扫描磁盘，返回 vector
-std::vector<std::pair<std::string, std::string>> enumerateInstances()
-{
-    std::vector<std::pair<std::string, std::string>> res;
-
-    /* 1. 默认目录 */
-    string base = homeDir() + "\\.vsenv";
-    WIN32_FIND_DATAA fd;
-    HANDLE h = FindFirstFileA((base + "\\*").c_str(), &fd);
-    if (h != INVALID_HANDLE_VALUE)
-    {
-        do
-        {
-            if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
-            {
-                string name = fd.cFileName;
-                if (name == "." || name == "..") continue;
-                string path = base + "\\" + name;
-                res.emplace_back(name, path);
-            }
-        } while (FindNextFileA(h, &fd));
-        FindClose(h);
-    }
-
-    /* 2. otherPath.json */
-    loadOtherPath();
-    for (const auto& [n, p] : g_otherPath)
-        res.emplace_back(n, p);
-
-    return res;
 }
 
 void create(const string& name, const string& customPath, const bool& isDownload, const L10N& L)
@@ -2197,6 +2056,7 @@ int main(int argc, char** argv) {
         std::uniform_int_distribution<std::size_t> dist(0, bannerL2Text.size() - 1);
         const std::string& line2 = bannerL2Text[dist(rng)];
         cout << line2 << "\n";
+		return 0;
     }
     else if (cmd == "rest") {
         // 处理带双引号的路径 (用户拖拽文件时可能包含)
@@ -2223,7 +2083,7 @@ int main(int argc, char** argv) {
 
         // 恢复协议
         if (restoreCodeProtocol(path)) {
-            cout << "✅ vscode:// 协议已成功恢复至: " << path << "\n";
+            cout << "vscode:// 协议已成功恢复至: " << path << "\n";
         }
         else {
             cerr << "恢复失败，请检查路径和权限\n";
